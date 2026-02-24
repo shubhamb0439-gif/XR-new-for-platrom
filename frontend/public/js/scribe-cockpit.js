@@ -92,6 +92,10 @@
     // transcript incremental state
     transcriptState: { byKey: {} },
 
+    // transcript ordering: track final segments with timestamps
+    transcriptSegments: [],
+    segmentFlushTimer: null,
+
     // active transcript
     currentActiveItemId: null,
 
@@ -1015,12 +1019,50 @@
     const textLower = text.toLowerCase();
     const result = {
       noteType: null,
-      mrn: null
+      mrn: null,
+      shouldGenerate: false
     };
 
-    // Detect note type
-    if (textLower.includes('soap note') || textLower.includes('soap-note')) {
+    // Detect SOAP note keywords in the transcript
+    const soapKeywords = [
+      'soap note',
+      'soap-note',
+      'subjective',
+      'objective',
+      'assessment',
+      'plan',
+      'chief complaint',
+      'history of present illness'
+    ];
+
+    // Check if any SOAP keywords are present - if so, auto-generate SOAP note
+    const hasSoapKeywords = soapKeywords.some(keyword => textLower.includes(keyword));
+
+    if (hasSoapKeywords) {
       result.noteType = CONFIG.SOAP_NOTE_TEMPLATE_ID;
+      result.shouldGenerate = true;
+    }
+
+    // Also check for medical context indicators that suggest a clinical note
+    const clinicalIndicators = [
+      'patient',
+      'diagnosis',
+      'symptoms',
+      'examination',
+      'vital signs',
+      'medication',
+      'prescription',
+      'treatment'
+    ];
+
+    const medicalContextCount = clinicalIndicators.filter(indicator =>
+      textLower.includes(indicator)
+    ).length;
+
+    // If we have 3 or more medical context indicators, assume it's a clinical note
+    if (medicalContextCount >= 3) {
+      result.noteType = CONFIG.SOAP_NOTE_TEMPLATE_ID;
+      result.shouldGenerate = true;
     }
 
     // Detect MRN - look for patterns like "MRN 12345" or "MRN: 12345" or "medical record number 12345"
@@ -1057,14 +1099,13 @@
 
     removeTranscriptPlaceholder();
 
-    // Don't use the currently selected template - let user select it manually
     const item = {
       id: uid(),
       from: from || 'Unknown',
       to: to || 'Unknown',
       text: String(text || '').trim(),
       timestamp: timestamp || Date.now(),
-      note: null, // No note generated yet
+      note: null,
     };
 
     const hist = normalizeHistoryItems(loadHistory());
@@ -1077,27 +1118,36 @@
 
     setActiveTranscriptId(item.id);
 
-    // Auto-detect note type and MRN from transcript
-    const detected = autoDetectFromTranscript(text);
+    // Get all transcripts and combine them for full context analysis
+    const allTranscripts = hist.map(h => h.text || '').join(' ');
+    const detected = autoDetectFromTranscript(allTranscripts);
 
-    // Auto-select note type if detected
-    if (detected.noteType && dom.templateSelect) {
-      dom.templateSelect.value = detected.noteType;
-      // Trigger change event to generate note
-      dom.templateSelect.dispatchEvent(new Event('change'));
-    } else {
-      // Don't automatically generate note - user must select template first
-      // Clear the SOAP note area and show a prompt
+    // Auto-generate note if SOAP indicators are detected in the full transcript
+    if (detected.shouldGenerate && detected.noteType && dom.templateSelect) {
+      const currentTemplate = dom.templateSelect.value;
+
+      // Only trigger if template isn't already selected or is different
+      if (!currentTemplate || currentTemplate !== detected.noteType) {
+        dom.templateSelect.value = detected.noteType;
+        dom.templateSelect.dispatchEvent(new Event('change'));
+      } else if (currentTemplate === detected.noteType) {
+        // Template already selected, trigger regeneration with updated content
+        dom.templateSelect.dispatchEvent(new Event('change'));
+      }
+    } else if (!detected.shouldGenerate) {
+      // No SOAP indicators - clear and wait for user selection
       renderSoapBlank();
       clearAiDiagnosisPaneUi();
     }
 
-    // Auto-search MRN if detected
+    // Auto-search MRN if detected in the full transcript
     if (detected.mrn && dom.mrnInput) {
-      dom.mrnInput.value = detected.mrn;
-      // Trigger the search
-      if (dom.mrnSearchButton) {
-        dom.mrnSearchButton.click();
+      const currentMrn = dom.mrnInput.value.trim();
+      if (!currentMrn || currentMrn !== detected.mrn) {
+        dom.mrnInput.value = detected.mrn;
+        if (dom.mrnSearchButton) {
+          dom.mrnSearchButton.click();
+        }
       }
     }
   }
@@ -2852,6 +2902,49 @@
     return prev + next.slice(k);
   }
 
+  function flushTranscriptSegments() {
+    if (state.transcriptSegments.length === 0) return;
+
+    state.transcriptSegments.sort((a, b) => {
+      const timeA = a.timestamp || 0;
+      const timeB = b.timestamp || 0;
+      if (timeA !== timeB) return timeA - timeB;
+      return (a.sequenceId || 0) - (b.sequenceId || 0);
+    });
+
+    const groupedByKey = {};
+    for (const seg of state.transcriptSegments) {
+      const k = transcriptKey(seg.from, seg.to);
+      if (!groupedByKey[k]) {
+        groupedByKey[k] = {
+          from: seg.from,
+          to: seg.to,
+          segments: [],
+          timestamp: seg.timestamp
+        };
+      }
+      groupedByKey[k].segments.push(seg.text);
+      if (seg.timestamp < groupedByKey[k].timestamp) {
+        groupedByKey[k].timestamp = seg.timestamp;
+      }
+    }
+
+    for (const k in groupedByKey) {
+      const group = groupedByKey[k];
+      const fullText = group.segments.join(' ').trim();
+      if (fullText) {
+        appendTranscriptItem({
+          from: group.from,
+          to: group.to,
+          text: fullText,
+          timestamp: group.timestamp
+        });
+      }
+    }
+
+    state.transcriptSegments = [];
+  }
+
   function ingestDrugAvailabilityPayload(payload) {
     const arr = Array.isArray(payload) ? payload : payload ? [payload] : [];
 
@@ -2928,13 +3021,12 @@
     }
 
     if (packet.type === 'transcript_console') {
-      // Remove the template selection popup - just accept transcripts
       const p = packet.data || {};
       const { from, to, text = '', final = false, timestamp } = p;
 
       const key = transcriptKey(from, to);
       const slot =
-        (state.transcriptState.byKey[key] ||= { partial: '', paragraph: '', flushTimer: null });
+        (state.transcriptState.byKey[key] ||= { partial: '', paragraph: '', flushTimer: null, lastSequenceId: 0 });
 
       if (!final) {
         slot.partial = text;
@@ -2943,15 +3035,22 @@
 
       const mergedFinal = mergeIncremental(slot.partial, text);
       slot.partial = '';
-      slot.paragraph = mergeIncremental(slot.paragraph ? slot.paragraph + ' ' : '', mergedFinal);
 
-      if (slot.flushTimer) clearTimeout(slot.flushTimer);
-      slot.flushTimer = setTimeout(() => {
-        if (slot.paragraph) {
-          appendTranscriptItem({ from, to, text: slot.paragraph, timestamp });
-          slot.paragraph = '';
-        }
-        slot.flushTimer = null;
+      const segmentTimestamp = timestamp || Date.now();
+      slot.lastSequenceId = (slot.lastSequenceId || 0) + 1;
+
+      state.transcriptSegments.push({
+        from,
+        to,
+        text: mergedFinal,
+        timestamp: segmentTimestamp,
+        sequenceId: slot.lastSequenceId
+      });
+
+      if (state.segmentFlushTimer) clearTimeout(state.segmentFlushTimer);
+      state.segmentFlushTimer = setTimeout(() => {
+        flushTranscriptSegments();
+        state.segmentFlushTimer = null;
       }, CONFIG.TRANSCRIPT_FLUSH_MS);
 
       return;
