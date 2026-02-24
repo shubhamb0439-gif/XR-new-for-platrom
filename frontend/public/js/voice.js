@@ -34,6 +34,7 @@ export class VoiceController {
    * @param {(text:string, isFinal:boolean)=>void} [opts.onTranscript]
    * @param {(isListening:boolean)=>void} [opts.onListenStateChange]
    * @param {(err:string)=>void} [opts.onError]
+   * @param {(data:{mrn:string, template:string, text:string})=>void} [opts.onMRNTemplateDetected]
    * @param {Array<{re:RegExp, action:string}>} [opts.customMap]  // optional extra phrases
    */
   constructor(opts = {}) {
@@ -47,6 +48,7 @@ export class VoiceController {
     this.onTranscript = typeof opts.onTranscript === 'function' ? opts.onTranscript : () => { };
     this.onListenStateChange = typeof opts.onListenStateChange === 'function' ? opts.onListenStateChange : () => { };
     this.onError = typeof opts.onError === 'function' ? opts.onError : () => { };
+    this.onMRNTemplateDetected = typeof opts.onMRNTemplateDetected === 'function' ? opts.onMRNTemplateDetected : () => { };
 
     this._customMap = Array.isArray(opts.customMap) ? opts.customMap : [];
 
@@ -60,6 +62,10 @@ export class VoiceController {
 
     this._noteMode = false;
     this._noteBuffer = '';
+
+    this._fullTranscript = '';
+    this._detectedMRN = null;
+    this._detectedTemplate = null;
 
     this._bindHandlers();
   }
@@ -142,14 +148,6 @@ export class VoiceController {
       else interim += (interim ? ' ' : '') + txt;
     }
 
-    // MRN conversion: "MRN 123" -> "MRNAB123"
-    if (interim) {
-      interim = this._convertMRN(interim);
-    }
-    if (finalTxt) {
-      finalTxt = this._convertMRN(finalTxt);
-    }
-
     // Partial transcript throttling
     if (interim) {
       const now = Date.now();
@@ -165,6 +163,12 @@ export class VoiceController {
     }
 
     if (finalTxt) {
+      // Add to full transcript for MRN/template detection
+      this._fullTranscript += (this._fullTranscript ? ' ' : '') + finalTxt;
+
+      // Detect MRN and template from the accumulated transcript
+      this._detectMRNAndTemplate(this._fullTranscript);
+
       // If in note mode, buffer AND do not treat as a command
       if (this._noteMode) {
         this._noteBuffer += (this._noteBuffer ? ' ' : '') + finalTxt;
@@ -230,11 +234,119 @@ export class VoiceController {
     this.onCommand('stop_note', 'create');
   }
 
-  // ------------------ MRN conversion ------------------
+  // ------------------ MRN and Template Detection ------------------
 
-  _convertMRN(text) {
-    // Convert patterns like "MRN 123" or "mrn 123" to "MRNAB123"
-    return text.replace(/\bmrn\s+(\d+)\b/gi, 'MRNAB$1');
+  _detectMRNAndTemplate(text) {
+    if (!text) return;
+
+    // Detect MRN
+    const mrnMatch = this._detectMRN(text);
+    if (mrnMatch && mrnMatch !== this._detectedMRN) {
+      this._detectedMRN = mrnMatch;
+      console.log('MRN detected:', mrnMatch);
+    }
+
+    // Detect template
+    const templateMatch = this._detectTemplate(text);
+    if (templateMatch && templateMatch !== this._detectedTemplate) {
+      this._detectedTemplate = templateMatch;
+      console.log('Template detected:', templateMatch);
+    }
+
+    // If both detected, emit event
+    if (this._detectedMRN && this._detectedTemplate) {
+      this.onMRNTemplateDetected({
+        mrn: this._detectedMRN,
+        template: this._detectedTemplate,
+        text: this._fullTranscript
+      });
+    }
+  }
+
+  _detectMRN(text) {
+    if (!text) return null;
+
+    // Pattern 1: MRN followed by alphanumeric (MRNAB123, MRN-ABA121, MRN-0001ABC)
+    const mrnPattern1 = /\b(MRN[-\s]?[A-Z0-9]+)\b/gi;
+    const match1 = text.match(mrnPattern1);
+
+    if (match1 && match1.length > 0) {
+      return match1[0].replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
+    }
+
+    // Pattern 2: Spoken format "MRN 123" -> convert to MRNAB123
+    const mrnPattern2 = /\bMRN\s+(\d+)\b/gi;
+    const match2 = text.match(mrnPattern2);
+
+    if (match2 && match2.length > 0) {
+      const numbers = match2[0].match(/\d+/)[0];
+      return `MRNAB${numbers}`;
+    }
+
+    return null;
+  }
+
+  _detectTemplate(text) {
+    if (!text) return null;
+
+    const templates = [
+      'SOAP Note',
+      'Admission Note',
+      'Consultation Note',
+      'Diagnostic Report',
+      'Discharge Summary',
+      'Follow Up Visit Note',
+      'Followup Visit',
+      'History And Physical',
+      'Hospital Followup Visit',
+      'New Patient Visit',
+      'Operative Report',
+      'Preop Visit',
+      'Procedure Note',
+      'Procedure-Note Abdominal Aortography',
+      'Procedure-Note Right And Left Heart Catheterization',
+      'Progress Note Soap',
+      'Stress Test Exercise MPI',
+      'Telehealth Visit',
+      'Vein Consult',
+      'Vein Followup'
+    ];
+
+    const lowerText = text.toLowerCase();
+
+    for (const template of templates) {
+      const templateLower = template.toLowerCase();
+
+      // Exact match
+      if (lowerText.includes(templateLower)) {
+        return template;
+      }
+
+      // Fuzzy match for multi-word templates
+      const templateWords = templateLower.split(' ').filter(w => w.length > 2);
+      if (templateWords.length > 1) {
+        const allWordsPresent = templateWords.every(word => lowerText.includes(word));
+        if (allWordsPresent) {
+          return template;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  resetDetection() {
+    this._fullTranscript = '';
+    this._detectedMRN = null;
+    this._detectedTemplate = null;
+  }
+
+  getDetectedData() {
+    return {
+      mrn: this._detectedMRN,
+      template: this._detectedTemplate,
+      text: this._fullTranscript
+    };
   }
 
   // ------------------ command parsing ------------------

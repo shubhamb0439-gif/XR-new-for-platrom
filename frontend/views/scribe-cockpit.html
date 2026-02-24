@@ -337,6 +337,47 @@
   </script>
    <!--(SweetAlert2) -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- Voice Controller Integration -->
+  <script type="module">
+    import { VoiceController } from '/public/js/voice.js';
+
+    // Initialize voice controller when page loads
+    window.addEventListener('DOMContentLoaded', () => {
+      console.log('[VOICE] Initializing voice controller...');
+
+      const voiceController = new VoiceController({
+        lang: 'en-US',
+        continuous: true,
+        interimResults: true,
+        onMRNTemplateDetected: (data) => {
+          console.log('[VOICE] MRN/Template detected:', data);
+          if (window.handleMRNTemplateDetection) {
+            window.handleMRNTemplateDetection(data);
+          }
+        },
+        onTranscript: (text, isFinal) => {
+          if (isFinal) {
+            console.log('[VOICE] Final transcript:', text);
+          }
+        },
+        onError: (error) => {
+          console.error('[VOICE] Error:', error);
+        }
+      });
+
+      // Store globally for access
+      window.voiceController = voiceController;
+
+      // Check if speech recognition is available
+      if (VoiceController.isAvailable()) {
+        console.log('[VOICE] Speech recognition is available');
+      } else {
+        console.warn('[VOICE] Speech recognition is NOT available in this browser');
+      }
+    });
+  </script>
+
   <script src="/public/js/scribe-cockpit.js"></script>
 </body>
 

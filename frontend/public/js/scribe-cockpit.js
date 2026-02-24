@@ -2,6 +2,21 @@
   'use strict';
 
   // =====================================================================================
+  // IMPORTS - MRN/Template Detection & Storage
+  // =====================================================================================
+  let ScribeStorage = null;
+
+  // Dynamically import storage utility
+  (async () => {
+    try {
+      const module = await import('/public/js/scribe-storage.js');
+      ScribeStorage = module.ScribeStorage || module.default;
+    } catch (e) {
+      console.warn('[SCRIBE] Failed to load storage utility:', e);
+    }
+  })();
+
+  // =====================================================================================
   // DOM ELEMENTS
   // =====================================================================================
   const dom = {
@@ -3958,6 +3973,115 @@
   }
 
 
+  // =============================================================================
+  //  AUTO-DETECTION: MRN and Template from Voice Transcription
+  // =============================================================================
+
+  async function handleMRNTemplateDetection(data) {
+    const { mrn, template, text } = data;
+
+    console.log('[AUTO-DETECT] MRN:', mrn, 'Template:', template);
+
+    // Save to local storage
+    if (ScribeStorage) {
+      if (mrn) ScribeStorage.saveMRN(mrn);
+      if (template) ScribeStorage.saveTemplate(template);
+      if (text) ScribeStorage.saveTranscript(text);
+    }
+
+    // Auto-open EHR slider with MRN
+    if (mrn) {
+      await autoSearchMRN(mrn);
+    }
+
+    // Auto-select template
+    if (template && dom.templateSelect) {
+      await autoSelectTemplate(template);
+    }
+  }
+
+  async function autoSearchMRN(mrn) {
+    if (!mrn) return;
+
+    console.log('[AUTO-DETECT] Opening EHR for MRN:', mrn);
+
+    // Set MRN input value
+    if (dom.mrnInput) {
+      dom.mrnInput.value = mrn;
+    }
+
+    // Open EHR sidebar
+    if (dom.ehrSidebar && dom.ehrOverlay) {
+      dom.ehrSidebar.classList.add('active');
+      dom.ehrOverlay.classList.add('active');
+    }
+
+    // Trigger search
+    await searchMRN();
+  }
+
+  async function autoSelectTemplate(templateName) {
+    if (!templateName || !dom.templateSelect) return;
+
+    console.log('[AUTO-DETECT] Selecting template:', templateName);
+
+    // Find matching template in dropdown
+    const options = Array.from(dom.templateSelect.options);
+    const matchingOption = options.find(opt =>
+      opt.textContent.toLowerCase().trim() === templateName.toLowerCase().trim()
+    );
+
+    if (matchingOption) {
+      dom.templateSelect.value = matchingOption.value;
+
+      // Trigger change event to generate note
+      const event = new Event('change', { bubbles: true });
+      dom.templateSelect.dispatchEvent(event);
+
+      console.log('[AUTO-DETECT] Template selected and applied:', templateName);
+    } else {
+      console.warn('[AUTO-DETECT] Template not found in dropdown:', templateName);
+    }
+  }
+
+  function restoreSessionFromStorage() {
+    if (!ScribeStorage) return;
+
+    const session = ScribeStorage.getActiveSession();
+    if (!session || !session.mrn) return;
+
+    console.log('[STORAGE] Restoring session:', session);
+
+    // Restore MRN in input
+    if (dom.mrnInput && session.mrn) {
+      dom.mrnInput.value = session.mrn;
+    }
+
+    // Restore template selection
+    if (dom.templateSelect && session.template) {
+      const options = Array.from(dom.templateSelect.options);
+      const matchingOption = options.find(opt =>
+        opt.textContent.toLowerCase().trim() === session.template.toLowerCase().trim()
+      );
+      if (matchingOption) {
+        dom.templateSelect.value = matchingOption.value;
+      }
+    }
+  }
+
+  function clearSessionStorage() {
+    if (!ScribeStorage) return;
+    ScribeStorage.clearAll();
+    console.log('[STORAGE] Session cleared');
+  }
+
+  // Expose to window for voice controller integration
+  window.handleMRNTemplateDetection = handleMRNTemplateDetection;
+
+  // =============================================================================
+  //  EHR SEARCH
+  // =============================================================================
+
   async function searchMRN() {
     if (!dom.mrnInput || !dom.mrnSearchButton) return;
     const mrn = dom.mrnInput.value.trim();
@@ -4114,6 +4238,9 @@
 
         // prevent restore bringing back old patient
         try { sessionStorage.removeItem(CONFIG.EHR_STORAGE_KEY); } catch { }
+
+        // Clear MRN/Template local storage
+        clearSessionStorage();
 
         // clear runtime state
         state.currentPatient = null;
