@@ -2056,8 +2056,10 @@ app.post('/ehr/ai/diagnosis', async (req, res) => {
 
     // Convert note_sections -> soapText
     const soapText = noteSectionsToSoapText(note_sections);
-    if (!soapText.trim()) {
-      return res.status(400).json({ error: 'note_sections has no usable text' });
+
+    // Allow if either note or summary has content
+    if (!soapText.trim() && !summary_text) {
+      return res.status(400).json({ error: 'Either note content or patient summary is required' });
     }
 
     const out = await generateDiagnosisFromContext({
