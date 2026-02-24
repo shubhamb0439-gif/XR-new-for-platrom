@@ -2,21 +2,6 @@
   'use strict';
 
   // =====================================================================================
-  // IMPORTS - MRN/Template Detection & Storage
-  // =====================================================================================
-  let ScribeStorage = null;
-
-  // Dynamically import storage utility
-  (async () => {
-    try {
-      const module = await import('/public/js/scribe-storage.js');
-      ScribeStorage = module.ScribeStorage || module.default;
-    } catch (e) {
-      console.warn('[SCRIBE] Failed to load storage utility:', e);
-    }
-  })();
-
-  // =====================================================================================
   // DOM ELEMENTS
   // =====================================================================================
   const dom = {
@@ -1030,96 +1015,37 @@
     const textLower = text.toLowerCase();
     const result = {
       noteType: null,
-      mrn: null,
-      template: null
+      mrn: null
     };
 
-    // ENHANCED: Detect template from available templates
-    const templates = window.getAvailableTemplates ? window.getAvailableTemplates() : [];
-    if (templates.length > 0) {
-      const normalize = (str) => str
-        .replace(/\b(consultation|consult)\b/gi, 'consultation')
-        .replace(/\b(soap)\b/gi, 'soap')
-        .replace(/\b(progress)\b/gi, 'progress')
-        .replace(/\b(note|notes|form)\b/gi, 'note');
-
-      const normalizedText = normalize(textLower);
-
-      for (const template of templates) {
-        const templateLower = template.toLowerCase();
-        const normalizedTemplate = normalize(templateLower);
-
-        // Exact match
-        if (normalizedText.includes(normalizedTemplate)) {
-          result.template = template;
-          console.log('[AUTO-DETECT] Template matched (exact):', template);
-          break;
-        }
-
-        // Fuzzy match - 70% word overlap
-        const templateWords = normalizedTemplate
-          .split(/\s+/)
-          .filter(w => w.length > 3 && !['form', 'note', 'the'].includes(w));
-
-        if (templateWords.length > 0) {
-          const matchedWords = templateWords.filter(word => normalizedText.includes(word));
-          const matchRatio = matchedWords.length / templateWords.length;
-
-          if (matchRatio >= 0.7) {
-            result.template = template;
-            console.log('[AUTO-DETECT] Template matched (fuzzy):', template, `(${Math.round(matchRatio * 100)}%)`);
-            break;
-          }
-        }
-      }
-    }
-
-    // Backward compatibility: SOAP note detection
-    if (!result.template && (textLower.includes('soap note') || textLower.includes('soap-note'))) {
+    // Detect note type
+    if (textLower.includes('soap note') || textLower.includes('soap-note')) {
       result.noteType = CONFIG.SOAP_NOTE_TEMPLATE_ID;
     }
 
-    // ENHANCED: MRN Detection with multiple patterns
+    // Detect MRN - look for patterns like "MRN 12345" or "MRN: 12345" or "medical record number 12345"
     const mrnPatterns = [
-      // Pattern 1: "MRN AB123" or "MRN-AB123" or "MRNAB123"
-      /\bMRN[-\s]*([A-Z]{2,}[-\s]*\d+)\b/i,
-
-      // Pattern 2: "MRN number 123" or "MRN 123"
-      /\bMRN\s+(?:number\s+)?(\d+)\b/i,
-
-      // Pattern 3: "patient MRN is AB123" or "patient's MRN AB123"
-      /\bpatient'?s?\s+MRN\s+(?:is\s+)?([A-Z]{2,}\d+)\b/i,
-
-      // Pattern 4: "M.R.N. AB123" or "M R N AB123"
-      /\bM\.?\s*R\.?\s*N\.?\s*:?\s*([A-Z]{2,}\d+|\d+)\b/i,
-
-      // Pattern 5: Just alphanumeric ID (AB123, ABA121)
-      /\b([A-Z]{2,}\d{3,})\b/,
-
-      // Pattern 6: Medical record number
+      /\bm\.?r\.?n\.?\s*:?\s*([a-z0-9]+)/i,
       /\bmedical\s+record\s+number\s*:?\s*([a-z0-9]+)/i,
-
-      // Pattern 7: Patient ID
       /\bpatient\s+id\s*:?\s*([a-z0-9]+)/i
     ];
 
     for (const pattern of mrnPatterns) {
       const match = text.match(pattern);
       if (match && match[1]) {
-        let detectedMrn = match[1].replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
+        let detectedMrn = match[1].trim().toUpperCase();
 
         // Convert to MRNAB123 format if it's just a number
         if (/^\d+$/.test(detectedMrn)) {
           result.mrn = `MRNAB${detectedMrn}`;
-        } else if (/[A-Z]/.test(detectedMrn) && /\d/.test(detectedMrn)) {
-          // Has both letters and numbers - valid MRN
+        } else if (!detectedMrn.startsWith('MRN')) {
+          // If it has letters but doesn't start with MRN, add MRNAB prefix
+          result.mrn = `MRNAB${detectedMrn}`;
+        } else {
+          // Already has MRN prefix or is in correct format
           result.mrn = detectedMrn;
         }
-
-        if (result.mrn) {
-          console.log('[AUTO-DETECT] MRN detected:', result.mrn, 'from:', match[0]);
-          break;
-        }
+        break;
       }
     }
 
@@ -1154,25 +1080,14 @@
     // Auto-detect note type and MRN from transcript
     const detected = autoDetectFromTranscript(text);
 
-    // Auto-select template if detected
-    if (detected.template && dom.templateSelect) {
-      const options = Array.from(dom.templateSelect.options);
-      const matchingOption = options.find(opt =>
-        opt.textContent.trim().toLowerCase() === detected.template.toLowerCase()
-      );
-
-      if (matchingOption) {
-        dom.templateSelect.value = matchingOption.value;
-        console.log('[AUTO-DETECT] Auto-selected template:', detected.template);
-        // Trigger change event to generate note
-        dom.templateSelect.dispatchEvent(new Event('change'));
-      }
-    } else if (detected.noteType && dom.templateSelect) {
-      // Backward compatibility
+    // Auto-select note type if detected
+    if (detected.noteType && dom.templateSelect) {
       dom.templateSelect.value = detected.noteType;
+      // Trigger change event to generate note
       dom.templateSelect.dispatchEvent(new Event('change'));
     } else {
       // Don't automatically generate note - user must select template first
+      // Clear the SOAP note area and show a prompt
       renderSoapBlank();
       clearAiDiagnosisPaneUi();
     }
@@ -1180,7 +1095,6 @@
     // Auto-search MRN if detected
     if (detected.mrn && dom.mrnInput) {
       dom.mrnInput.value = detected.mrn;
-      console.log('[AUTO-DETECT] Auto-filled MRN:', detected.mrn);
       // Trigger the search
       if (dom.mrnSearchButton) {
         dom.mrnSearchButton.click();
@@ -2784,8 +2698,6 @@
       // ignore
     }
 
-    // Voice controller removed - cockpit only receives transcripts via WebSocket
-
     syncDropdownToActiveTranscript();
 
     dom.templateSelect.onchange = () => {
@@ -2930,14 +2842,14 @@
   }
 
   function mergeIncremental(prev, next) {
-    // FIXED: Simply append next to prev with proper spacing
-    // The old logic was causing garbled, out-of-sequence transcripts
     if (!prev) return next || '';
     if (!next) return prev;
+    if (next.startsWith(prev)) return next;
+    if (prev.startsWith(next)) return prev;
 
-    // Just append with space - no complex merging needed
-    // Speech recognition already sends clean, sequential results
-    return prev + ' ' + next;
+    let k = Math.min(prev.length, next.length);
+    while (k > 0 && !prev.endsWith(next.slice(0, k))) k--;
+    return prev + next.slice(k);
   }
 
   function ingestDrugAvailabilityPayload(payload) {
@@ -4046,130 +3958,6 @@
   }
 
 
-  // =============================================================================
-  //  AUTO-DETECTION: MRN and Template from Voice Transcription
-  // =============================================================================
-
-  async function handleMRNTemplateDetection(data) {
-    const { mrn, template, text } = data;
-
-    console.log('[AUTO-DETECT] MRN:', mrn, 'Template:', template);
-
-    // Save to local storage
-    if (ScribeStorage) {
-      if (mrn) ScribeStorage.saveMRN(mrn);
-      if (template) ScribeStorage.saveTemplate(template);
-      if (text) ScribeStorage.saveTranscript(text);
-    }
-
-    // Auto-open EHR slider with MRN
-    if (mrn) {
-      await autoSearchMRN(mrn);
-    }
-
-    // Auto-select template
-    if (template && dom.templateSelect) {
-      await autoSelectTemplate(template);
-    }
-  }
-
-  async function autoSearchMRN(mrn) {
-    if (!mrn) return;
-
-    console.log('[AUTO-DETECT] Opening EHR for MRN:', mrn);
-
-    // Set MRN input value
-    if (dom.mrnInput) {
-      dom.mrnInput.value = mrn;
-    }
-
-    // Open EHR sidebar
-    if (dom.ehrSidebar && dom.ehrOverlay) {
-      dom.ehrSidebar.classList.add('active');
-      dom.ehrOverlay.classList.add('active');
-    }
-
-    // Trigger search
-    await searchMRN();
-  }
-
-  async function autoSelectTemplate(templateName) {
-    if (!templateName || !dom.templateSelect) return;
-
-    console.log('[AUTO-DETECT] Selecting template:', templateName);
-
-    // Find matching template in dropdown
-    const options = Array.from(dom.templateSelect.options);
-    const matchingOption = options.find(opt =>
-      opt.textContent.toLowerCase().trim() === templateName.toLowerCase().trim()
-    );
-
-    if (matchingOption) {
-      dom.templateSelect.value = matchingOption.value;
-
-      // Trigger change event to generate note
-      const event = new Event('change', { bubbles: true });
-      dom.templateSelect.dispatchEvent(event);
-
-      console.log('[AUTO-DETECT] Template selected and applied:', templateName);
-    } else {
-      console.warn('[AUTO-DETECT] Template not found in dropdown:', templateName);
-    }
-  }
-
-  function restoreSessionFromStorage() {
-    if (!ScribeStorage) return;
-
-    const session = ScribeStorage.getActiveSession();
-    if (!session || !session.mrn) return;
-
-    console.log('[STORAGE] Restoring session:', session);
-
-    // Restore MRN in input
-    if (dom.mrnInput && session.mrn) {
-      dom.mrnInput.value = session.mrn;
-    }
-
-    // Restore template selection
-    if (dom.templateSelect && session.template) {
-      const options = Array.from(dom.templateSelect.options);
-      const matchingOption = options.find(opt =>
-        opt.textContent.toLowerCase().trim() === session.template.toLowerCase().trim()
-      );
-      if (matchingOption) {
-        dom.templateSelect.value = matchingOption.value;
-      }
-    }
-  }
-
-  function clearSessionStorage() {
-    if (!ScribeStorage) return;
-    ScribeStorage.clearAll();
-    console.log('[STORAGE] Session cleared');
-  }
-
-  // Expose to window for voice controller integration
-  window.handleMRNTemplateDetection = handleMRNTemplateDetection;
-
-  window.getAvailableTemplates = function() {
-    if (!dom.templateSelect) return [];
-
-    const options = Array.from(dom.templateSelect.options);
-    const templates = options
-      .filter(opt => opt.value && !opt.disabled)
-      .map(opt => opt.textContent.trim());
-
-    return templates;
-  };
-
-  // REMOVED: Voice controller sync
-  // Scribe cockpit no longer has its own voice controller
-  // It only receives transcripts via WebSocket from the device
-
-  // =============================================================================
-  //  EHR SEARCH
-  // =============================================================================
-
   async function searchMRN() {
     if (!dom.mrnInput || !dom.mrnSearchButton) return;
     const mrn = dom.mrnInput.value.trim();
@@ -4326,9 +4114,6 @@
 
         // prevent restore bringing back old patient
         try { sessionStorage.removeItem(CONFIG.EHR_STORAGE_KEY); } catch { }
-
-        // Clear MRN/Template local storage
-        clearSessionStorage();
 
         // clear runtime state
         state.currentPatient = null;

@@ -34,7 +34,6 @@ export class VoiceController {
    * @param {(text:string, isFinal:boolean)=>void} [opts.onTranscript]
    * @param {(isListening:boolean)=>void} [opts.onListenStateChange]
    * @param {(err:string)=>void} [opts.onError]
-   * @param {(data:{mrn:string, template:string, text:string})=>void} [opts.onMRNTemplateDetected]
    * @param {Array<{re:RegExp, action:string}>} [opts.customMap]  // optional extra phrases
    */
   constructor(opts = {}) {
@@ -48,7 +47,6 @@ export class VoiceController {
     this.onTranscript = typeof opts.onTranscript === 'function' ? opts.onTranscript : () => { };
     this.onListenStateChange = typeof opts.onListenStateChange === 'function' ? opts.onListenStateChange : () => { };
     this.onError = typeof opts.onError === 'function' ? opts.onError : () => { };
-    this.onMRNTemplateDetected = typeof opts.onMRNTemplateDetected === 'function' ? opts.onMRNTemplateDetected : () => { };
 
     this._customMap = Array.isArray(opts.customMap) ? opts.customMap : [];
 
@@ -63,13 +61,7 @@ export class VoiceController {
     this._noteMode = false;
     this._noteBuffer = '';
 
-    this._fullTranscript = '';
-    this._detectedMRN = null;
-    this._detectedTemplate = null;
-    this._availableTemplates = [];
-
     this._bindHandlers();
-    this._loadTemplatesFromAPI();
   }
 
   static isAvailable() {
@@ -131,88 +123,57 @@ export class VoiceController {
     this._rec.continuous = this.continuous;
     this._rec.interimResults = this.interimResults;
 
-    // CRITICAL: Enhanced settings for better accuracy
-    this._rec.maxAlternatives = 1; // Only best result to avoid confusion
-
-    // Chrome-specific enhancements
-    if (this._rec.grammars && typeof window.SpeechGrammarList !== 'undefined') {
-      try {
-        const grammarList = new window.SpeechGrammarList();
-        // Add medical terminology hints
-        const grammar = '#JSGF V1.0; grammar medical; public <term> = MRN | patient | consultation | SOAP | template | doctor ;';
-        grammarList.addFromString(grammar, 1);
-        this._rec.grammars = grammarList;
-      } catch (e) {
-        console.warn('[VOICE] Could not set grammar hints:', e);
-      }
-    }
-
     this._rec.onresult = this._onResult;
     this._rec.onerror = this._onError;
     this._rec.onend = this._onEnd;
-    this._rec.onstart = () => {
-      console.log('[VOICE] Recognition started with lang:', this.lang);
-    };
   }
 
   _onResult(e) {
-    // CRITICAL FIX: Process results in sequential order to maintain sentence coherence
-    let finalSegments = [];
-    let latestInterim = '';
+    // Aggregate interim + final across results block
+    let interim = '';
+    let finalTxt = '';
 
-    // Process ALL results from the beginning to maintain order
-    for (let i = 0; i < e.results.length; i++) {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
       const res = e.results[i];
-      const txt = (res[0]?.transcript || '').trim();
+      const txt = (res[0]?.transcript || '').toLowerCase().trim();
       if (!txt) continue;
 
-      if (res.isFinal) {
-        // Preserve exact casing for proper nouns, MRNs, etc.
-        finalSegments.push(txt);
-      } else if (i === e.results.length - 1) {
-        // Only keep the very last interim result
-        latestInterim = txt;
-      }
+      if (res.isFinal) finalTxt += (finalTxt ? ' ' : '') + txt;
+      else interim += (interim ? ' ' : '') + txt;
     }
 
-    // Handle interim results with throttling
-    if (latestInterim && !finalSegments.length) {
+    // Partial transcript throttling
+    if (interim) {
       const now = Date.now();
       if (now - this._lastPartialAt >= this.partialThrottleMs) {
         this._lastPartialAt = now;
-        this.onTranscript(latestInterim, false);
+        if (this._noteMode) {
+          // Note mode buffers partials locally, still notify UI
+          this.onTranscript(interim, false);
+        } else {
+          this.onTranscript(interim, false);
+        }
       }
-      return; // Don't process further until we have final results
     }
 
-    // Process final results in order
-    if (finalSegments.length > 0) {
-      const finalTxt = finalSegments.join(' ');
-      const finalTxtLower = finalTxt.toLowerCase();
-
-      // Add to full transcript for MRN/template detection
-      this._fullTranscript += (this._fullTranscript ? ' ' : '') + finalTxt;
-
-      // Detect MRN and template from the accumulated transcript
-      this._detectMRNAndTemplate(finalTxt);
-
+    if (finalTxt) {
       // If in note mode, buffer AND do not treat as a command
       if (this._noteMode) {
         this._noteBuffer += (this._noteBuffer ? ' ' : '') + finalTxt;
         this.onTranscript(finalTxt, true);
         // "create" stops note mode
-        if (/\bcreate\b/.test(finalTxtLower)) {
-          this._emitStopNote();
+        if (/\bcreate\b/.test(finalTxt)) {
+          this._emitStopNote(); // includes final note buffer
         }
         return;
       }
 
-      // Normal command mode - use lowercase for command detection
-      const action = this._parseCommand(finalTxtLower);
+      // Normal command mode
+      const action = this._parseCommand(finalTxt);
       if (action) {
         this.onCommand(action, finalTxt);
       } else {
-        // Deliver final transcript with original casing
+        // Deliver final transcript even if no command matched
         this.onTranscript(finalTxt, true);
       }
     }
@@ -259,189 +220,6 @@ export class VoiceController {
     // Emit final transcript of the note and a stop_note command
     if (finalNote) this.onTranscript(finalNote, true);
     this.onCommand('stop_note', 'create');
-  }
-
-  // ------------------ MRN and Template Detection ------------------
-
-  _detectMRNAndTemplate(text) {
-    if (!text) return;
-
-    // Detect MRN
-    const mrnMatch = this._detectMRN(text);
-    if (mrnMatch && mrnMatch !== this._detectedMRN) {
-      this._detectedMRN = mrnMatch;
-      console.log('MRN detected:', mrnMatch);
-    }
-
-    // Detect template
-    const templateMatch = this._detectTemplate(text);
-    if (templateMatch && templateMatch !== this._detectedTemplate) {
-      this._detectedTemplate = templateMatch;
-      console.log('Template detected:', templateMatch);
-    }
-
-    // If both detected, emit event
-    if (this._detectedMRN && this._detectedTemplate) {
-      this.onMRNTemplateDetected({
-        mrn: this._detectedMRN,
-        template: this._detectedTemplate,
-        text: this._fullTranscript
-      });
-    }
-  }
-
-  _detectMRN(text) {
-    if (!text) return null;
-
-    const patterns = [
-      // Pattern 1: "MRN AB123" or "MRN-AB123" or "MRNAB123"
-      /\bMRN[-\s]*([A-Z]{2,}[-\s]*\d+)\b/i,
-
-      // Pattern 2: "MRN number 123" or "MRN 123"
-      /\bMRN\s+(?:number\s+)?(\d+)\b/i,
-
-      // Pattern 3: "patient MRN is AB123" or "patient's MRN AB123"
-      /\bpatient'?s?\s+MRN\s+(?:is\s+)?([A-Z]{2,}\d+)\b/i,
-
-      // Pattern 4: Spoken format "M R N A B one two three"
-      /\b[Mm]\s*[Rr]\s*[Nn]\s+([A-Z]{2,}\s*\d+|\d+)\b/,
-
-      // Pattern 5: Just alphanumeric ID that looks like MRN (AB123, ABA121)
-      /\b([A-Z]{2,}\d{3,})\b/
-    ];
-
-    for (const pattern of patterns) {
-      const match = text.match(pattern);
-      if (match && match[1]) {
-        let mrn = match[1].replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
-
-        // If it's just numbers, prefix with MRNAB
-        if (/^\d+$/.test(mrn)) {
-          mrn = `MRNAB${mrn}`;
-        }
-
-        // Validate it looks like a real MRN (has letters and numbers)
-        if (/[A-Z]/.test(mrn) && /\d/.test(mrn)) {
-          console.log('[MRN DETECTED]', mrn, 'from:', match[0]);
-          return mrn;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  async _loadTemplatesFromAPI() {
-    try {
-      // Check if window has template data (from scribe-cockpit)
-      if (window.getAvailableTemplates && typeof window.getAvailableTemplates === 'function') {
-        const templates = await window.getAvailableTemplates();
-        if (templates && templates.length > 0) {
-          this._availableTemplates = templates;
-          console.log('[VOICE] Loaded templates dynamically:', templates.length);
-          return;
-        }
-      }
-
-      // Fallback: try to get from DOM template select
-      const templateSelect = document.getElementById('templateSelect');
-      if (templateSelect) {
-        const options = Array.from(templateSelect.options);
-        this._availableTemplates = options
-          .filter(opt => opt.value)
-          .map(opt => opt.textContent.trim());
-        console.log('[VOICE] Loaded templates from DOM:', this._availableTemplates.length);
-      }
-    } catch (e) {
-      console.warn('[VOICE] Could not load templates dynamically:', e);
-    }
-  }
-
-  setTemplates(templates) {
-    if (Array.isArray(templates) && templates.length > 0) {
-      this._availableTemplates = templates;
-      console.log('[VOICE] Templates updated:', templates.length);
-    }
-  }
-
-  _detectTemplate(text) {
-    if (!text) return null;
-
-    const templates = this._availableTemplates.length > 0
-      ? this._availableTemplates
-      : [];
-
-    if (templates.length === 0) {
-      console.warn('[VOICE] No templates available for detection');
-      return null;
-    }
-
-    const lowerText = text.toLowerCase();
-
-    // Common medical abbreviations and variations
-    const normalize = (str) => str
-      .replace(/\b(consultation|consult)\b/gi, 'consultation')
-      .replace(/\b(soap)\b/gi, 'soap')
-      .replace(/\b(progress)\b/gi, 'progress')
-      .replace(/\b(note|notes)\b/gi, 'note');
-
-    const normalizedText = normalize(lowerText);
-
-    for (const template of templates) {
-      const templateLower = template.toLowerCase();
-      const normalizedTemplate = normalize(templateLower);
-
-      // Exact match (normalized)
-      if (normalizedText.includes(normalizedTemplate)) {
-        console.log('[TEMPLATE DETECTED] Exact match:', template);
-        return template;
-      }
-
-      // Try partial match of key words
-      const templateWords = normalizedTemplate
-        .split(/\s+/)
-        .filter(w => w.length > 3 && !['form', 'note', 'the'].includes(w));
-
-      if (templateWords.length === 0) continue;
-
-      // Check if significant words are present
-      const matchedWords = templateWords.filter(word => normalizedText.includes(word));
-      const matchRatio = matchedWords.length / templateWords.length;
-
-      if (matchRatio >= 0.7) { // 70% of words must match
-        console.log('[TEMPLATE DETECTED] Fuzzy match:', template, `(${Math.round(matchRatio * 100)}%)`);
-        return template;
-      }
-
-      // Special case: check for common phrase patterns
-      const phrases = [
-        `${templateWords[0]} ${templateWords[templateWords.length - 1]}`, // first and last word
-        templateWords.slice(0, 2).join(' '), // first 2 words
-      ];
-
-      for (const phrase of phrases) {
-        if (phrase.length > 5 && normalizedText.includes(phrase)) {
-          console.log('[TEMPLATE DETECTED] Phrase match:', template, 'via:', phrase);
-          return template;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  resetDetection() {
-    this._fullTranscript = '';
-    this._detectedMRN = null;
-    this._detectedTemplate = null;
-  }
-
-  getDetectedData() {
-    return {
-      mrn: this._detectedMRN,
-      template: this._detectedTemplate,
-      text: this._fullTranscript
-    };
   }
 
   // ------------------ command parsing ------------------

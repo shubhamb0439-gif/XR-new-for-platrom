@@ -37,8 +37,6 @@
       <h1 class="text-xl md:text-2xl font-bold text-white">Rhea | AI Augmented EHR</h1>
 
       <div id="topRightControls" class="flex gap-4 items-center">
-        <!-- Voice status removed - cockpit only receives transcripts via WebSocket -->
-
         <span id="statusPill" class="px-3 py-1 rounded-full text-white text-xs md:text-base bg-yellow-500 select-none"
           aria-live="polite" aria-label="Connection status: Connecting">
           Connecting
@@ -339,14 +337,6 @@
   </script>
    <!--(SweetAlert2) -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
-  <!--
-    REMOVED: Voice Controller Integration
-    Scribe Cockpit now ONLY receives transcripts via WebSocket from the device.
-    The device page handles all voice recognition using voice.js.
-    Cockpit is a passive receiver and display interface.
-  -->
-
   <script src="/public/js/scribe-cockpit.js"></script>
 </body>
 
