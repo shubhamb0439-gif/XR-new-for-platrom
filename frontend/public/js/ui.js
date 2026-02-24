@@ -914,8 +914,6 @@ elBtnVideo.addEventListener('click', () => {
 // ----------------- Voice + Notes (partial/final transcripts) -----------------
 let SR = null, rec = null, speechIntentLang = 'en-US';
 let conversationBuffer = '';
-let lastFinalSentAt = 0;
-const FINAL_SEND_DELAY_MS = 1500;
 
 function setupSR() {
     SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -951,15 +949,6 @@ function setupSR() {
             } else if (recordingActive) {
                 noteBuffer += (noteBuffer ? ' ' : '') + finalTxt;
                 conversationBuffer += (conversationBuffer ? ' ' : '') + finalTxt;
-
-                const now = Date.now();
-                if (now - lastFinalSentAt > FINAL_SEND_DELAY_MS) {
-                    lastFinalSentAt = now;
-                    if (conversationBuffer.trim()) {
-                        sendTranscript(conversationBuffer.trim(), true);
-                        conversationBuffer = '';
-                    }
-                }
             } else {
                 processVoiceCommand(finalLower);
             }
@@ -1033,6 +1022,7 @@ function onStartRecordingNote() {
     if (recordingActive) return;
     recordingActive = true;
     noteBuffer = '';
+    conversationBuffer = '';
     if (!isListening) startVoiceRecognition();
     msg('System', 'Note recording started (say "create" to stop).');
 }
