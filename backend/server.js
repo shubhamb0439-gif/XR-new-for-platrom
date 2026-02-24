@@ -885,6 +885,17 @@ async function tryDbAutoPair(deviceId, debugSocket = null) {
 
   if (debugSocket) dbgToSocket(debugSocket, "[DB_AUTO_PAIR] joined both", { roomId, meXr, partnerXr });
 
+  // ✅ Log room membership for debugging
+  const roomSockets = io.sockets.adapter.rooms.get(roomId);
+  console.log('[DB_AUTO_PAIR] Room membership after join:', {
+    roomId,
+    memberCount: roomSockets ? roomSockets.size : 0,
+    meSocketId: meSocket.id,
+    meXrId: meXr,
+    partnerSocketId: partnerSocket.id,
+    partnerXrId: partnerXr
+  });
+
   const parsed = String(roomId).split(':');
   const members = (parsed.length === 3) ? [normXr(parsed[1]), normXr(parsed[2])] : [meXr, partnerXr];
   io.to(roomId).emit("room_joined", { roomId, members });
@@ -5353,6 +5364,15 @@ io.on('connection', (socket) => {
           await socket.join(roomId);
           socket.data.roomId = roomId;
 
+          // ✅ Log room membership after cockpit join
+          const roomSockets = io.sockets.adapter.rooms.get(roomId);
+          console.log('[COCKPIT] Joined room:', {
+            xrId: XR,
+            roomId,
+            socketId: socket.id,
+            memberCount: roomSockets ? roomSockets.size : 0
+          });
+
           socket.emit('room_joined', { roomId });
 
           try {
@@ -6129,7 +6149,21 @@ io.on('connection', (socket) => {
 
       // Get room members for debugging
       const roomSockets = io.sockets.adapter.rooms.get(targetRoom);
-      console.log('[play_audio_on_device] Room members:', roomSockets ? roomSockets.size : 0);
+      const memberCount = roomSockets ? roomSockets.size : 0;
+      console.log('[play_audio_on_device] Room members:', memberCount);
+
+      // Log each member's details
+      if (roomSockets && roomSockets.size > 0) {
+        console.log('[play_audio_on_device] Room member details:');
+        for (const socketId of roomSockets) {
+          const sock = io.sockets.sockets.get(socketId);
+          if (sock) {
+            console.log(`  - Socket ${socketId}: xrId=${sock.data?.xrId}, deviceName=${sock.data?.deviceName}, roomId=${sock.data?.roomId}`);
+          }
+        }
+      } else {
+        console.warn('[play_audio_on_device] ⚠️ WARNING: Room is EMPTY! No devices will receive the audio.');
+      }
 
       io.to(targetRoom).emit('play_audio', {
         audio,
@@ -6137,7 +6171,7 @@ io.on('connection', (socket) => {
         timestamp: Date.now()
       });
 
-      console.log('[play_audio_on_device] Emitted play_audio event to room');
+      console.log('[play_audio_on_device] ✅ Emitted play_audio event to', memberCount, 'member(s)');
     } catch (e) {
       console.error('[play_audio_on_device] Error:', e?.message || e);
     }

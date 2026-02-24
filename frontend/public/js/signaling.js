@@ -107,6 +107,7 @@ export class SignalingClient {
     this.socket.on('control', this._onControl);
 
     // Audio playback
+    console.log('[SIGNALING] Registering play_audio listener');
     this.socket.on('play_audio', this._onPlayAudio.bind(this));
   }
 
@@ -360,13 +361,21 @@ export class SignalingClient {
   }
 
   _onPlayAudio(payload) {
-    console.log('[SIGNALING] _onPlayAudio received:', {
+    console.log('[SIGNALING] ⚡ play_audio EVENT RECEIVED FROM SERVER!', {
       hasPayload: !!payload,
       hasAudio: !!payload?.audio,
       audioLength: payload?.audio?.length,
-      contentType: payload?.contentType
+      contentType: payload?.contentType,
+      timestamp: payload?.timestamp,
+      hasListener: !!this.listener?.onPlayAudio
     });
-    this.listener?.onPlayAudio?.(payload);
+
+    if (!this.listener?.onPlayAudio) {
+      console.error('[SIGNALING] ❌ No onPlayAudio handler registered in listener!');
+      return;
+    }
+
+    this.listener.onPlayAudio(payload);
   }
 
   _emitSignal(type, from, to, data) {
