@@ -225,18 +225,16 @@ function transcriptKey(from, to) {
 }
 
 /**
- * Merge incremental text to avoid duplicate tails.
- * If next includes prev as prefix, take next; otherwise join with maximal overlap.
+ * FIXED: Simple sequential concatenation for clean transcripts
+ * The old overlap-merging logic was causing garbled, out-of-sequence text
  */
 function mergeIncremental(prev, next) {
     if (!prev) return next || '';
     if (!next) return prev;
-    if (next.startsWith(prev)) return next;
-    if (prev.startsWith(next)) return prev;
-    const max = Math.min(prev.length, next.length);
-    let k = max;
-    while (k > 0 && !prev.endsWith(next.slice(0, k))) k--;
-    return prev + next.slice(k);
+
+    // Simply append with space - speech recognition sends sequential results
+    // No complex merging needed
+    return prev + ' ' + next;
 }
 
 

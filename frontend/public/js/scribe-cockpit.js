@@ -1030,37 +1030,96 @@
     const textLower = text.toLowerCase();
     const result = {
       noteType: null,
-      mrn: null
+      mrn: null,
+      template: null
     };
 
-    // Detect note type
-    if (textLower.includes('soap note') || textLower.includes('soap-note')) {
+    // ENHANCED: Detect template from available templates
+    const templates = window.getAvailableTemplates ? window.getAvailableTemplates() : [];
+    if (templates.length > 0) {
+      const normalize = (str) => str
+        .replace(/\b(consultation|consult)\b/gi, 'consultation')
+        .replace(/\b(soap)\b/gi, 'soap')
+        .replace(/\b(progress)\b/gi, 'progress')
+        .replace(/\b(note|notes|form)\b/gi, 'note');
+
+      const normalizedText = normalize(textLower);
+
+      for (const template of templates) {
+        const templateLower = template.toLowerCase();
+        const normalizedTemplate = normalize(templateLower);
+
+        // Exact match
+        if (normalizedText.includes(normalizedTemplate)) {
+          result.template = template;
+          console.log('[AUTO-DETECT] Template matched (exact):', template);
+          break;
+        }
+
+        // Fuzzy match - 70% word overlap
+        const templateWords = normalizedTemplate
+          .split(/\s+/)
+          .filter(w => w.length > 3 && !['form', 'note', 'the'].includes(w));
+
+        if (templateWords.length > 0) {
+          const matchedWords = templateWords.filter(word => normalizedText.includes(word));
+          const matchRatio = matchedWords.length / templateWords.length;
+
+          if (matchRatio >= 0.7) {
+            result.template = template;
+            console.log('[AUTO-DETECT] Template matched (fuzzy):', template, `(${Math.round(matchRatio * 100)}%)`);
+            break;
+          }
+        }
+      }
+    }
+
+    // Backward compatibility: SOAP note detection
+    if (!result.template && (textLower.includes('soap note') || textLower.includes('soap-note'))) {
       result.noteType = CONFIG.SOAP_NOTE_TEMPLATE_ID;
     }
 
-    // Detect MRN - look for patterns like "MRN 12345" or "MRN: 12345" or "medical record number 12345"
+    // ENHANCED: MRN Detection with multiple patterns
     const mrnPatterns = [
-      /\bm\.?r\.?n\.?\s*:?\s*([a-z0-9]+)/i,
+      // Pattern 1: "MRN AB123" or "MRN-AB123" or "MRNAB123"
+      /\bMRN[-\s]*([A-Z]{2,}[-\s]*\d+)\b/i,
+
+      // Pattern 2: "MRN number 123" or "MRN 123"
+      /\bMRN\s+(?:number\s+)?(\d+)\b/i,
+
+      // Pattern 3: "patient MRN is AB123" or "patient's MRN AB123"
+      /\bpatient'?s?\s+MRN\s+(?:is\s+)?([A-Z]{2,}\d+)\b/i,
+
+      // Pattern 4: "M.R.N. AB123" or "M R N AB123"
+      /\bM\.?\s*R\.?\s*N\.?\s*:?\s*([A-Z]{2,}\d+|\d+)\b/i,
+
+      // Pattern 5: Just alphanumeric ID (AB123, ABA121)
+      /\b([A-Z]{2,}\d{3,})\b/,
+
+      // Pattern 6: Medical record number
       /\bmedical\s+record\s+number\s*:?\s*([a-z0-9]+)/i,
+
+      // Pattern 7: Patient ID
       /\bpatient\s+id\s*:?\s*([a-z0-9]+)/i
     ];
 
     for (const pattern of mrnPatterns) {
       const match = text.match(pattern);
       if (match && match[1]) {
-        let detectedMrn = match[1].trim().toUpperCase();
+        let detectedMrn = match[1].replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
 
         // Convert to MRNAB123 format if it's just a number
         if (/^\d+$/.test(detectedMrn)) {
           result.mrn = `MRNAB${detectedMrn}`;
-        } else if (!detectedMrn.startsWith('MRN')) {
-          // If it has letters but doesn't start with MRN, add MRNAB prefix
-          result.mrn = `MRNAB${detectedMrn}`;
-        } else {
-          // Already has MRN prefix or is in correct format
+        } else if (/[A-Z]/.test(detectedMrn) && /\d/.test(detectedMrn)) {
+          // Has both letters and numbers - valid MRN
           result.mrn = detectedMrn;
         }
-        break;
+
+        if (result.mrn) {
+          console.log('[AUTO-DETECT] MRN detected:', result.mrn, 'from:', match[0]);
+          break;
+        }
       }
     }
 
@@ -1095,14 +1154,25 @@
     // Auto-detect note type and MRN from transcript
     const detected = autoDetectFromTranscript(text);
 
-    // Auto-select note type if detected
-    if (detected.noteType && dom.templateSelect) {
+    // Auto-select template if detected
+    if (detected.template && dom.templateSelect) {
+      const options = Array.from(dom.templateSelect.options);
+      const matchingOption = options.find(opt =>
+        opt.textContent.trim().toLowerCase() === detected.template.toLowerCase()
+      );
+
+      if (matchingOption) {
+        dom.templateSelect.value = matchingOption.value;
+        console.log('[AUTO-DETECT] Auto-selected template:', detected.template);
+        // Trigger change event to generate note
+        dom.templateSelect.dispatchEvent(new Event('change'));
+      }
+    } else if (detected.noteType && dom.templateSelect) {
+      // Backward compatibility
       dom.templateSelect.value = detected.noteType;
-      // Trigger change event to generate note
       dom.templateSelect.dispatchEvent(new Event('change'));
     } else {
       // Don't automatically generate note - user must select template first
-      // Clear the SOAP note area and show a prompt
       renderSoapBlank();
       clearAiDiagnosisPaneUi();
     }
@@ -1110,6 +1180,7 @@
     // Auto-search MRN if detected
     if (detected.mrn && dom.mrnInput) {
       dom.mrnInput.value = detected.mrn;
+      console.log('[AUTO-DETECT] Auto-filled MRN:', detected.mrn);
       // Trigger the search
       if (dom.mrnSearchButton) {
         dom.mrnSearchButton.click();
@@ -2860,14 +2931,14 @@
   }
 
   function mergeIncremental(prev, next) {
+    // FIXED: Simply append next to prev with proper spacing
+    // The old logic was causing garbled, out-of-sequence transcripts
     if (!prev) return next || '';
     if (!next) return prev;
-    if (next.startsWith(prev)) return next;
-    if (prev.startsWith(next)) return prev;
 
-    let k = Math.min(prev.length, next.length);
-    while (k > 0 && !prev.endsWith(next.slice(0, k))) k--;
-    return prev + next.slice(k);
+    // Just append with space - no complex merging needed
+    // Speech recognition already sends clean, sequential results
+    return prev + ' ' + next;
   }
 
   function ingestDrugAvailabilityPayload(payload) {
