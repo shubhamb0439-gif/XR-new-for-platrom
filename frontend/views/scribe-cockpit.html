@@ -37,6 +37,11 @@
       <h1 class="text-xl md:text-2xl font-bold text-white">Rhea | AI Augmented EHR</h1>
 
       <div id="topRightControls" class="flex gap-4 items-center">
+        <span id="voiceStatusPill" class="px-3 py-1 rounded-full text-white text-xs md:text-base bg-green-600 select-none hidden"
+          title="Voice detection active">
+          🎤 Listening
+        </span>
+
         <span id="statusPill" class="px-3 py-1 rounded-full text-white text-xs md:text-base bg-yellow-500 select-none"
           aria-live="polite" aria-label="Connection status: Connecting">
           Connecting
@@ -346,12 +351,66 @@
     window.addEventListener('DOMContentLoaded', () => {
       console.log('[VOICE] Initializing voice controller...');
 
+      let detectionNotified = false;
+
+      const voiceStatusPill = document.getElementById('voiceStatusPill');
+
       const voiceController = new VoiceController({
         lang: 'en-US',
         continuous: true,
         interimResults: true,
+        partialThrottleMs: 500,
+        onListenStateChange: (isListening) => {
+          if (voiceStatusPill) {
+            voiceStatusPill.classList.toggle('hidden', !isListening);
+            if (isListening) {
+              voiceStatusPill.classList.add('animate-pulse');
+            } else {
+              voiceStatusPill.classList.remove('animate-pulse');
+            }
+          }
+          console.log('[VOICE] Listen state:', isListening ? 'ACTIVE' : 'STOPPED');
+        },
         onMRNTemplateDetected: (data) => {
-          console.log('[VOICE] MRN/Template detected:', data);
+          console.log('[VOICE] ✅ MRN/Template Auto-Detected:', data);
+
+          if (detectionNotified) return;
+          detectionNotified = true;
+
+          const mrnInput = document.getElementById('mrnInput');
+          const templateSelect = document.getElementById('templateSelect');
+
+          if (mrnInput && data.mrn) {
+            mrnInput.value = data.mrn;
+            console.log('[VOICE] Auto-filled MRN:', data.mrn);
+          }
+
+          if (templateSelect && data.template) {
+            const options = Array.from(templateSelect.options);
+            const matchingOption = options.find(opt =>
+              opt.textContent.trim().toLowerCase() === data.template.toLowerCase()
+            );
+
+            if (matchingOption) {
+              templateSelect.value = matchingOption.value;
+              templateSelect.dispatchEvent(new Event('change'));
+              console.log('[VOICE] Auto-selected template:', data.template);
+            }
+          }
+
+          if (typeof Swal !== 'undefined') {
+            Swal.fire({
+              icon: 'success',
+              title: 'Auto-Detected',
+              html: `<strong>MRN:</strong> ${data.mrn}<br><strong>Template:</strong> ${data.template}`,
+              timer: 3000,
+              timerProgressBar: true,
+              toast: true,
+              position: 'top-end',
+              showConfirmButton: false
+            });
+          }
+
           if (window.handleMRNTemplateDetection) {
             window.handleMRNTemplateDetection(data);
           }
@@ -359,21 +418,32 @@
         onTranscript: (text, isFinal) => {
           if (isFinal) {
             console.log('[VOICE] Final transcript:', text);
+          } else {
+            console.log('[VOICE] Partial:', text.substring(0, 50) + '...');
           }
         },
         onError: (error) => {
           console.error('[VOICE] Error:', error);
+          if (error === 'no-speech') {
+            console.log('[VOICE] No speech detected, continuing...');
+          }
         }
       });
 
-      // Store globally for access
       window.voiceController = voiceController;
 
-      // Check if speech recognition is available
+      window.resetVoiceDetection = () => {
+        detectionNotified = false;
+        voiceController.resetDetection();
+        console.log('[VOICE] Detection state reset');
+      };
+
       if (VoiceController.isAvailable()) {
-        console.log('[VOICE] Speech recognition is available');
+        console.log('[VOICE] ✅ Speech recognition is available');
+        voiceController.start();
+        console.log('[VOICE] Auto-started for continuous detection');
       } else {
-        console.warn('[VOICE] Speech recognition is NOT available in this browser');
+        console.warn('[VOICE] ❌ Speech recognition is NOT available in this browser');
       }
     });
   </script>

@@ -131,63 +131,88 @@ export class VoiceController {
     this._rec.continuous = this.continuous;
     this._rec.interimResults = this.interimResults;
 
-    this._rec.onresult = this._onResult;
-    this._rec.onerror = this._onError;
-    this._rec.onend = this._onEnd;
-  }
+    // CRITICAL: Enhanced settings for better accuracy
+    this._rec.maxAlternatives = 1; // Only best result to avoid confusion
 
-  _onResult(e) {
-    // Aggregate interim + final across results block
-    let interim = '';
-    let finalTxt = '';
-
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const res = e.results[i];
-      const txt = (res[0]?.transcript || '').toLowerCase().trim();
-      if (!txt) continue;
-
-      if (res.isFinal) finalTxt += (finalTxt ? ' ' : '') + txt;
-      else interim += (interim ? ' ' : '') + txt;
-    }
-
-    // Partial transcript throttling
-    if (interim) {
-      const now = Date.now();
-      if (now - this._lastPartialAt >= this.partialThrottleMs) {
-        this._lastPartialAt = now;
-        if (this._noteMode) {
-          // Note mode buffers partials locally, still notify UI
-          this.onTranscript(interim, false);
-        } else {
-          this.onTranscript(interim, false);
-        }
+    // Chrome-specific enhancements
+    if (this._rec.grammars && typeof window.SpeechGrammarList !== 'undefined') {
+      try {
+        const grammarList = new window.SpeechGrammarList();
+        // Add medical terminology hints
+        const grammar = '#JSGF V1.0; grammar medical; public <term> = MRN | patient | consultation | SOAP | template | doctor ;';
+        grammarList.addFromString(grammar, 1);
+        this._rec.grammars = grammarList;
+      } catch (e) {
+        console.warn('[VOICE] Could not set grammar hints:', e);
       }
     }
 
-    if (finalTxt) {
+    this._rec.onresult = this._onResult;
+    this._rec.onerror = this._onError;
+    this._rec.onend = this._onEnd;
+    this._rec.onstart = () => {
+      console.log('[VOICE] Recognition started with lang:', this.lang);
+    };
+  }
+
+  _onResult(e) {
+    // CRITICAL FIX: Process results in sequential order to maintain sentence coherence
+    let finalSegments = [];
+    let latestInterim = '';
+
+    // Process ALL results from the beginning to maintain order
+    for (let i = 0; i < e.results.length; i++) {
+      const res = e.results[i];
+      const txt = (res[0]?.transcript || '').trim();
+      if (!txt) continue;
+
+      if (res.isFinal) {
+        // Preserve exact casing for proper nouns, MRNs, etc.
+        finalSegments.push(txt);
+      } else if (i === e.results.length - 1) {
+        // Only keep the very last interim result
+        latestInterim = txt;
+      }
+    }
+
+    // Handle interim results with throttling
+    if (latestInterim && !finalSegments.length) {
+      const now = Date.now();
+      if (now - this._lastPartialAt >= this.partialThrottleMs) {
+        this._lastPartialAt = now;
+        this.onTranscript(latestInterim, false);
+      }
+      return; // Don't process further until we have final results
+    }
+
+    // Process final results in order
+    if (finalSegments.length > 0) {
+      const finalTxt = finalSegments.join(' ');
+      const finalTxtLower = finalTxt.toLowerCase();
+
       // Add to full transcript for MRN/template detection
       this._fullTranscript += (this._fullTranscript ? ' ' : '') + finalTxt;
 
       // Detect MRN and template from the accumulated transcript
-      this._detectMRNAndTemplate(this._fullTranscript);
+      this._detectMRNAndTemplate(finalTxt);
 
       // If in note mode, buffer AND do not treat as a command
       if (this._noteMode) {
         this._noteBuffer += (this._noteBuffer ? ' ' : '') + finalTxt;
         this.onTranscript(finalTxt, true);
         // "create" stops note mode
-        if (/\bcreate\b/.test(finalTxt)) {
-          this._emitStopNote(); // includes final note buffer
+        if (/\bcreate\b/.test(finalTxtLower)) {
+          this._emitStopNote();
         }
         return;
       }
 
-      // Normal command mode
-      const action = this._parseCommand(finalTxt);
+      // Normal command mode - use lowercase for command detection
+      const action = this._parseCommand(finalTxtLower);
       if (action) {
         this.onCommand(action, finalTxt);
       } else {
-        // Deliver final transcript even if no command matched
+        // Deliver final transcript with original casing
         this.onTranscript(finalTxt, true);
       }
     }
@@ -268,21 +293,39 @@ export class VoiceController {
   _detectMRN(text) {
     if (!text) return null;
 
-    // Pattern 1: MRN followed by alphanumeric (MRNAB123, MRN-ABA121, MRN-0001ABC)
-    const mrnPattern1 = /\b(MRN[-\s]?[A-Z0-9]+)\b/gi;
-    const match1 = text.match(mrnPattern1);
+    const patterns = [
+      // Pattern 1: "MRN AB123" or "MRN-AB123" or "MRNAB123"
+      /\bMRN[-\s]*([A-Z]{2,}[-\s]*\d+)\b/i,
 
-    if (match1 && match1.length > 0) {
-      return match1[0].replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
-    }
+      // Pattern 2: "MRN number 123" or "MRN 123"
+      /\bMRN\s+(?:number\s+)?(\d+)\b/i,
 
-    // Pattern 2: Spoken format "MRN 123" -> convert to MRNAB123
-    const mrnPattern2 = /\bMRN\s+(\d+)\b/gi;
-    const match2 = text.match(mrnPattern2);
+      // Pattern 3: "patient MRN is AB123" or "patient's MRN AB123"
+      /\bpatient'?s?\s+MRN\s+(?:is\s+)?([A-Z]{2,}\d+)\b/i,
 
-    if (match2 && match2.length > 0) {
-      const numbers = match2[0].match(/\d+/)[0];
-      return `MRNAB${numbers}`;
+      // Pattern 4: Spoken format "M R N A B one two three"
+      /\b[Mm]\s*[Rr]\s*[Nn]\s+([A-Z]{2,}\s*\d+|\d+)\b/,
+
+      // Pattern 5: Just alphanumeric ID that looks like MRN (AB123, ABA121)
+      /\b([A-Z]{2,}\d{3,})\b/
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        let mrn = match[1].replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
+
+        // If it's just numbers, prefix with MRNAB
+        if (/^\d+$/.test(mrn)) {
+          mrn = `MRNAB${mrn}`;
+        }
+
+        // Validate it looks like a real MRN (has letters and numbers)
+        if (/[A-Z]/.test(mrn) && /\d/.test(mrn)) {
+          console.log('[MRN DETECTED]', mrn, 'from:', match[0]);
+          return mrn;
+        }
+      }
     }
 
     return null;
@@ -324,7 +367,6 @@ export class VoiceController {
   _detectTemplate(text) {
     if (!text) return null;
 
-    // Use dynamically loaded templates
     const templates = this._availableTemplates.length > 0
       ? this._availableTemplates
       : [];
@@ -336,19 +378,50 @@ export class VoiceController {
 
     const lowerText = text.toLowerCase();
 
+    // Common medical abbreviations and variations
+    const normalize = (str) => str
+      .replace(/\b(consultation|consult)\b/gi, 'consultation')
+      .replace(/\b(soap)\b/gi, 'soap')
+      .replace(/\b(progress)\b/gi, 'progress')
+      .replace(/\b(note|notes)\b/gi, 'note');
+
+    const normalizedText = normalize(lowerText);
+
     for (const template of templates) {
       const templateLower = template.toLowerCase();
+      const normalizedTemplate = normalize(templateLower);
 
-      // Exact match
-      if (lowerText.includes(templateLower)) {
+      // Exact match (normalized)
+      if (normalizedText.includes(normalizedTemplate)) {
+        console.log('[TEMPLATE DETECTED] Exact match:', template);
         return template;
       }
 
-      // Fuzzy match for multi-word templates
-      const templateWords = templateLower.split(' ').filter(w => w.length > 2);
-      if (templateWords.length > 1) {
-        const allWordsPresent = templateWords.every(word => lowerText.includes(word));
-        if (allWordsPresent) {
+      // Try partial match of key words
+      const templateWords = normalizedTemplate
+        .split(/\s+/)
+        .filter(w => w.length > 3 && !['form', 'note', 'the'].includes(w));
+
+      if (templateWords.length === 0) continue;
+
+      // Check if significant words are present
+      const matchedWords = templateWords.filter(word => normalizedText.includes(word));
+      const matchRatio = matchedWords.length / templateWords.length;
+
+      if (matchRatio >= 0.7) { // 70% of words must match
+        console.log('[TEMPLATE DETECTED] Fuzzy match:', template, `(${Math.round(matchRatio * 100)}%)`);
+        return template;
+      }
+
+      // Special case: check for common phrase patterns
+      const phrases = [
+        `${templateWords[0]} ${templateWords[templateWords.length - 1]}`, // first and last word
+        templateWords.slice(0, 2).join(' '), // first 2 words
+      ];
+
+      for (const phrase of phrases) {
+        if (phrase.length > 5 && normalizedText.includes(phrase)) {
+          console.log('[TEMPLATE DETECTED] Phrase match:', template, 'via:', phrase);
           return template;
         }
       }
