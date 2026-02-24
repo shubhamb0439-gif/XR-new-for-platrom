@@ -91,6 +91,7 @@
 
     // transcript incremental state
     transcriptState: { byKey: {} },
+    transcriptSequence: 0,
 
     // active transcript
     currentActiveItemId: null,
@@ -110,6 +111,10 @@
 
     // FIFO queue: soap_note_console -> transcript item
     pendingSoapItemQueue: [],
+
+    // Template keywords mapping
+    templateKeywords: new Map(),
+    templatesLoaded: false,
 
     // total edits badge
     totalEditsBadgeEl: null,
@@ -937,6 +942,24 @@
     }
   }
 
+  function renderTranscriptList(items) {
+    if (!dom.transcript) return;
+
+    dom.transcript.innerHTML = '';
+
+    if (!items || items.length === 0) {
+      ensureTranscriptPlaceholder();
+      return;
+    }
+
+    items.forEach(item => {
+      dom.transcript.appendChild(createTranscriptCard(item));
+    });
+
+    trimTranscriptIfNeeded();
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
   function createTranscriptCard(item) {
     const { id, from, to, text, timestamp } = item;
 
@@ -1018,8 +1041,10 @@
       mrn: null
     };
 
-    // Detect note type
-    if (textLower.includes('soap note') || textLower.includes('soap-note')) {
+    const matchedTemplate = matchTemplateByKeywords(text);
+    if (matchedTemplate) {
+      result.noteType = matchedTemplate;
+    } else if (textLower.includes('soap note') || textLower.includes('soap-note')) {
       result.noteType = CONFIG.SOAP_NOTE_TEMPLATE_ID;
     }
 
@@ -1052,35 +1077,37 @@
     return result;
   }
 
-  function appendTranscriptItem({ from, to, text, timestamp }) {
+  function appendTranscriptItem({ from, to, text, timestamp, sequence }) {
     if (!dom.transcript || !text) return;
 
     removeTranscriptPlaceholder();
 
-    // Don't use the currently selected template - let user select it manually
     const item = {
       id: uid(),
       from: from || 'Unknown',
       to: to || 'Unknown',
       text: String(text || '').trim(),
       timestamp: timestamp || Date.now(),
-      note: null, // No note generated yet
+      sequence: sequence || 0,
+      note: null,
     };
 
     const hist = normalizeHistoryItems(loadHistory());
     hist.push(item);
+    hist.sort((a, b) => {
+      const seqA = a.sequence || 0;
+      const seqB = b.sequence || 0;
+      if (seqA !== seqB) return seqA - seqB;
+      return (a.timestamp || 0) - (b.timestamp || 0);
+    });
     saveHistory(hist);
 
-    dom.transcript.appendChild(createTranscriptCard(item));
-    trimTranscriptIfNeeded();
-    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    renderTranscriptList(hist);
 
     setActiveTranscriptId(item.id);
 
-    // Auto-detect note type and MRN from transcript
     const detected = autoDetectFromTranscript(text);
 
-    // Auto-select note type if detected
     if (detected.noteType && dom.templateSelect) {
       dom.templateSelect.value = detected.noteType;
       // Trigger change event to generate note
@@ -2683,6 +2710,9 @@
       if (resp.ok) {
         const data = await resp.json();
         const templates = data.templates || [];
+
+        state.templateKeywords.clear();
+
         templates.forEach((t) => {
           const id = String(t.id);
           const exists = Array.from(dom.templateSelect.options).some((o) => o.value === id);
@@ -2692,7 +2722,17 @@
           opt.value = id;
           opt.textContent = t.name || t.short_name || `Template ${t.id}`;
           dom.templateSelect.appendChild(opt);
+
+          const keywords = [];
+          if (t.name) keywords.push(t.name);
+          if (t.short_name && t.short_name !== t.name) keywords.push(t.short_name);
+          if (keywords.length > 0) {
+            state.templateKeywords.set(id, keywords);
+          }
         });
+
+        state.templateKeywords.set(CONFIG.SOAP_NOTE_TEMPLATE_ID, ['soap note', 'soap', 'subjective objective assessment plan']);
+        state.templatesLoaded = true;
       }
     } catch {
       // ignore
@@ -2852,6 +2892,23 @@
     return prev + next.slice(k);
   }
 
+  function matchTemplateByKeywords(text) {
+    if (!text || state.templateKeywords.size === 0) return null;
+
+    const normalizedText = text.toLowerCase().trim();
+
+    for (const [templateId, keywords] of state.templateKeywords.entries()) {
+      for (const keyword of keywords) {
+        const normalizedKeyword = keyword.toLowerCase().trim();
+        if (normalizedText.includes(normalizedKeyword)) {
+          return templateId;
+        }
+      }
+    }
+
+    return null;
+  }
+
   function ingestDrugAvailabilityPayload(payload) {
     const arr = Array.isArray(payload) ? payload : payload ? [payload] : [];
 
@@ -2928,13 +2985,12 @@
     }
 
     if (packet.type === 'transcript_console') {
-      // Remove the template selection popup - just accept transcripts
       const p = packet.data || {};
       const { from, to, text = '', final = false, timestamp } = p;
 
       const key = transcriptKey(from, to);
       const slot =
-        (state.transcriptState.byKey[key] ||= { partial: '', paragraph: '', flushTimer: null });
+        (state.transcriptState.byKey[key] ||= { partial: '', paragraph: '', flushTimer: null, sequence: null });
 
       if (!final) {
         slot.partial = text;
@@ -2945,11 +3001,16 @@
       slot.partial = '';
       slot.paragraph = mergeIncremental(slot.paragraph ? slot.paragraph + ' ' : '', mergedFinal);
 
+      if (!slot.sequence) {
+        slot.sequence = ++state.transcriptSequence;
+      }
+
       if (slot.flushTimer) clearTimeout(slot.flushTimer);
       slot.flushTimer = setTimeout(() => {
         if (slot.paragraph) {
-          appendTranscriptItem({ from, to, text: slot.paragraph, timestamp });
+          appendTranscriptItem({ from, to, text: slot.paragraph, timestamp, sequence: slot.sequence });
           slot.paragraph = '';
+          slot.sequence = null;
         }
         slot.flushTimer = null;
       }, CONFIG.TRANSCRIPT_FLUSH_MS);
