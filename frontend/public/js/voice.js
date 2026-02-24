@@ -142,6 +142,14 @@ export class VoiceController {
       else interim += (interim ? ' ' : '') + txt;
     }
 
+    // MRN conversion: "MRN 123" -> "MRNAB123"
+    if (interim) {
+      interim = this._convertMRN(interim);
+    }
+    if (finalTxt) {
+      finalTxt = this._convertMRN(finalTxt);
+    }
+
     // Partial transcript throttling
     if (interim) {
       const now = Date.now();
@@ -220,6 +228,13 @@ export class VoiceController {
     // Emit final transcript of the note and a stop_note command
     if (finalNote) this.onTranscript(finalNote, true);
     this.onCommand('stop_note', 'create');
+  }
+
+  // ------------------ MRN conversion ------------------
+
+  _convertMRN(text) {
+    // Convert patterns like "MRN 123" or "mrn 123" to "MRNAB123"
+    return text.replace(/\bmrn\s+(\d+)\b/gi, 'MRNAB$1');
   }
 
   // ------------------ command parsing ------------------
