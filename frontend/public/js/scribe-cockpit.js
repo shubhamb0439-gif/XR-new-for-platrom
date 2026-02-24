@@ -752,6 +752,7 @@
     let changed = false;
 
     for (const item of hist) {
+      // Migrate old note formats to new format
       if (!item.note) {
         if (item.notes?.default || item.soap) {
           item.note = {
@@ -763,13 +764,12 @@
           const firstKey = Object.keys(item.notes.templates)[0];
           item.note = { templateId: String(firstKey), data: item.notes.templates[firstKey] || {} };
           changed = true;
-        } else {
-          item.note = { templateId: CONFIG.SOAP_NOTE_TEMPLATE_ID, data: {} };
-          changed = true;
         }
+        // Don't create empty note objects - let them remain null
       }
 
-      if (item.note) {
+      // Normalize template ID if note exists
+      if (item.note && item.note.data && Object.keys(item.note.data).length > 0) {
         const tid = String(item.note.templateId ?? '').trim();
         if (!tid || tid === 'default') {
           item.note.templateId = CONFIG.SOAP_NOTE_TEMPLATE_ID;
@@ -777,6 +777,7 @@
         }
       }
 
+      // Clean up old note properties
       if (item.notes || item.soap || item.activeTemplateId) {
         delete item.notes;
         delete item.soap;
@@ -803,7 +804,7 @@
   }
 
   function getActiveNoteForItem(item) {
-    return item?.note?.data || {};
+    return item?.note || null;
   }
 
   function getActiveTemplateIdForItem(item) {
@@ -830,7 +831,16 @@
   function syncDropdownToActiveTranscript() {
     if (!dom.templateSelect) return;
     const { item } = getActiveHistoryContext();
-    setTemplateSelectValue(getActiveTemplateIdForItem(item));
+
+    // If the item has a note with data, show the template ID
+    // Otherwise, show the placeholder "Select note type..."
+    const existingNote = getActiveNoteForItem(item);
+    if (existingNote && existingNote.data && Object.keys(existingNote.data).length > 0) {
+      setTemplateSelectValue(getActiveTemplateIdForItem(item));
+    } else {
+      // Reset to placeholder
+      dom.templateSelect.value = '';
+    }
   }
 
   // =============================================================================
@@ -980,11 +990,21 @@
     state.aiDiagnosisLastError = null;
 
     const ctx = getActiveHistoryContext();
-    state.latestSoapNote = getActiveNoteForItem(ctx.item) || loadLatestSoap() || {};
-    if (!state.soapGenerating) renderSoapNote(state.latestSoapNote);
+    const existingNote = getActiveNoteForItem(ctx.item);
 
-    syncDropdownToActiveTranscript();
-    renderAiDiagnosisUi(null);
+    if (existingNote && existingNote.data && Object.keys(existingNote.data).length > 0) {
+      // Note already exists for this transcript - show it
+      state.latestSoapNote = existingNote.data;
+      if (!state.soapGenerating) renderSoapNote(state.latestSoapNote);
+      syncDropdownToActiveTranscript();
+      renderAiDiagnosisUi(null);
+    } else {
+      // No note generated yet - show blank state with prompt
+      state.latestSoapNote = {};
+      renderSoapBlank();
+      syncDropdownToActiveTranscript();
+      clearAiDiagnosisPaneUi();
+    }
   }
 
   function appendTranscriptItem({ from, to, text, timestamp }) {
@@ -992,16 +1012,14 @@
 
     removeTranscriptPlaceholder();
 
-    // Use the currently selected template ID from the dropdown
-    const selectedTemplateId = dom.templateSelect?.value || CONFIG.SOAP_NOTE_TEMPLATE_ID;
-
+    // Don't use the currently selected template - let user select it manually
     const item = {
       id: uid(),
       from: from || 'Unknown',
       to: to || 'Unknown',
       text: String(text || '').trim(),
       timestamp: timestamp || Date.now(),
-      note: { templateId: selectedTemplateId, data: {} },
+      note: null, // No note generated yet
     };
 
     const hist = normalizeHistoryItems(loadHistory());
@@ -1014,8 +1032,10 @@
 
     setActiveTranscriptId(item.id);
 
-    // Automatically generate note using the selected template
-    requestNoteGenerationForActiveTranscript(selectedTemplateId);
+    // Don't automatically generate note - user must select template first
+    // Clear the SOAP note area and show a prompt
+    renderSoapBlank();
+    clearAiDiagnosisPaneUi();
   }
 
   // =============================================================================
@@ -1066,7 +1086,28 @@
   }
 
   function renderSoapBlank() {
-    soapContainerEnsure().innerHTML = '';
+    const scroller = soapContainerEnsure();
+    scroller.innerHTML = `
+      <div style="
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        min-height: 300px;
+        padding: 40px 20px;
+        text-align: center;
+        color: #9ca3af;
+      ">
+        <div style="font-size: 48px; margin-bottom: 16px;">📝</div>
+        <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px; color: #e5e7eb;">
+          No Note Generated
+        </div>
+        <div style="font-size: 14px; max-width: 400px; line-height: 1.6;">
+          Select a note type from the dropdown above to generate a note for this transcription.
+        </div>
+      </div>
+    `;
   }
 
   function ensureTopHeadingBadge() {
@@ -2303,7 +2344,8 @@
       clearAiDiagnosisForHistoryItemTemplate(item.id, templateId);
     }
 
-    const note = getActiveNoteForItem(item) || {};
+    const noteWrapper = getActiveNoteForItem(item);
+    const note = noteWrapper?.data || {};
     const noteSections = buildNoteSectionsPayload(note);
 
     const mrn = String(state.currentPatient?.mrn_no || '').trim() || null;
@@ -2537,6 +2579,14 @@
 
     dom.templateSelect.innerHTML = '';
 
+    // Add placeholder option
+    const optPlaceholder = document.createElement('option');
+    optPlaceholder.value = '';
+    optPlaceholder.textContent = 'Select note type...';
+    optPlaceholder.disabled = true;
+    optPlaceholder.selected = true;
+    dom.templateSelect.appendChild(optPlaceholder);
+
     const optSoap = document.createElement('option');
     optSoap.value = CONFIG.SOAP_NOTE_TEMPLATE_ID;
     optSoap.textContent = 'SOAP Note';
@@ -2565,8 +2615,12 @@
     syncDropdownToActiveTranscript();
 
     dom.templateSelect.onchange = () => {
-      state.templateSelected = true;
-      applyTemplateToActiveTranscript(dom.templateSelect.value || CONFIG.SOAP_NOTE_TEMPLATE_ID);
+      // When user selects a template, generate the note for the active transcript
+      const ctx = getActiveHistoryContext();
+      if (!ctx.item) return;
+
+      const selectedTemplateId = dom.templateSelect.value || CONFIG.SOAP_NOTE_TEMPLATE_ID;
+      applyTemplateToActiveTranscript(selectedTemplateId);
     };
   }
 
@@ -2788,11 +2842,7 @@
     }
 
     if (packet.type === 'transcript_console') {
-      if (!state.templateSelected) {
-        showTemplateSelectionModal();
-        return;
-      }
-
+      // Remove the template selection popup - just accept transcripts
       const p = packet.data || {};
       const { from, to, text = '', final = false, timestamp } = p;
 
@@ -3100,7 +3150,8 @@
     ensureTopHeadingBadge();
 
     const ctx = getActiveHistoryContext();
-    state.latestSoapNote = getActiveNoteForItem(ctx.item) || loadLatestSoap() || {};
+    const noteWrapper = getActiveNoteForItem(ctx.item);
+    state.latestSoapNote = noteWrapper?.data || loadLatestSoap() || {};
 
     if (!hist.length) {
       renderSoapBlank();
@@ -3286,7 +3337,8 @@
     if (isTemplateDrivenNoteEligible(stored)) return stored;
 
     const ctx = getActiveHistoryContext();
-    return getActiveNoteForItem(ctx.item) || {};
+    const noteWrapper = getActiveNoteForItem(ctx.item);
+    return noteWrapper?.data || {};
   }
 
   function buildTemplateEhrSavePayload({ patientId, doctorId, scribeId, modifiedBy, timestamp, note }) {
@@ -3374,7 +3426,8 @@
 
     const ctx = getActiveHistoryContext();
     if (ctx.item) {
-      state.latestSoapNote = getActiveNoteForItem(ctx.item) || {};
+      const noteWrapper = getActiveNoteForItem(ctx.item);
+      state.latestSoapNote = noteWrapper?.data || {};
       saveLatestSoap(state.latestSoapNote);
       renderSoapNote(state.latestSoapNote);
       syncDropdownToActiveTranscript();
@@ -4032,9 +4085,9 @@
       });
 
       await initTemplateDropdown();
-      setTemplateSelectValue(getActiveTemplateIdForItem(getActiveHistoryContext().item));
 
-      showTemplateSelectionModal();
+      // Don't show template selection modal on startup
+      // User will select template when they click on a transcription
 
       renderAiDiagnosisUi(null);
     } catch (e) {
