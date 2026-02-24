@@ -549,6 +549,46 @@ function createSignaling() {
             if (cmd === 'unmute') { applyMute(false); return; }
         },
 
+        onPlayAudio: (payload) => {
+            try {
+                const audioBase64 = payload?.audio;
+                const contentType = payload?.contentType || 'audio/mpeg';
+
+                if (!audioBase64) {
+                    console.warn('[AUDIO] No audio data received');
+                    return;
+                }
+
+                const audioData = atob(audioBase64);
+                const arrayBuffer = new ArrayBuffer(audioData.length);
+                const uint8Array = new Uint8Array(arrayBuffer);
+
+                for (let i = 0; i < audioData.length; i++) {
+                    uint8Array[i] = audioData.charCodeAt(i);
+                }
+
+                const blob = new Blob([uint8Array], { type: contentType });
+                const audioUrl = URL.createObjectURL(blob);
+
+                const audio = new Audio(audioUrl);
+                audio.play().then(() => {
+                    msg('System', '🔊 Playing summary audio');
+                    console.log('[AUDIO] Playing audio on device');
+                }).catch(err => {
+                    console.error('[AUDIO] Playback error:', err);
+                    msg('System', '⚠️ Failed to play audio');
+                });
+
+                audio.onended = () => {
+                    URL.revokeObjectURL(audioUrl);
+                    console.log('[AUDIO] Playback finished');
+                };
+            } catch (err) {
+                console.error('[AUDIO] Error processing audio:', err);
+                msg('System', '⚠️ Audio playback error');
+            }
+        },
+
         onDeviceListUpdated: (listPairs) => {
             preferDesktop(listPairs);
 

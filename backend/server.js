@@ -2189,6 +2189,69 @@ function parseJsonObject(raw) {
   }
 }
 
+app.post('/ehr/ai/text-to-speech', async (req, res) => {
+  try {
+    const { text } = req.body;
+
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+    if (!ELEVENLABS_API_KEY || ELEVENLABS_API_KEY === 'your_elevenlabs_api_key_here') {
+      return res.status(500).json({ error: 'ElevenLabs API key not configured' });
+    }
+
+    const VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB';
+    const MODEL_ID = process.env.ELEVENLABS_MODEL_ID || 'eleven_monolingual_v1';
+
+    console.log('[TTS] Generating audio for text length:', text.length);
+
+    const elevenResponse = await axios.post(
+      `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
+      {
+        text: text.trim(),
+        model_id: MODEL_ID,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.0,
+          use_speaker_boost: true
+        }
+      },
+      {
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': ELEVENLABS_API_KEY
+        },
+        responseType: 'arraybuffer',
+        timeout: 60000
+      }
+    );
+
+    if (elevenResponse.status !== 200) {
+      throw new Error(`ElevenLabs API error: ${elevenResponse.status}`);
+    }
+
+    const audioBase64 = Buffer.from(elevenResponse.data).toString('base64');
+
+    console.log('[TTS] Audio generated successfully, size:', elevenResponse.data.length, 'bytes');
+
+    res.json({
+      success: true,
+      audio: audioBase64,
+      contentType: 'audio/mpeg'
+    });
+
+  } catch (err) {
+    console.error('[TTS] Error:', err.message);
+    res.status(500).json({
+      error: err?.response?.data?.detail?.message || err.message || 'Failed to generate audio'
+    });
+  }
+});
+
 function normalizeSingleParagraph(text) {
   return String(text || '')
     .replace(/\s+/g, ' ')
@@ -6046,6 +6109,31 @@ io.on('connection', (socket) => {
       io.emit('status_report', payload);
     }
 
+  });
+
+  // -------- play_audio_on_device (NEW) --------
+  socket.on('play_audio_on_device', ({ audio, contentType, room }) => {
+    try {
+      if (!audio) {
+        console.warn('[play_audio_on_device] No audio data provided');
+        return;
+      }
+
+      const targetRoom = room || socket.data?.roomId;
+      if (!targetRoom) {
+        console.warn('[play_audio_on_device] No room specified');
+        return;
+      }
+
+      console.log('[play_audio_on_device] Broadcasting to room:', targetRoom);
+      io.to(targetRoom).emit('play_audio', {
+        audio,
+        contentType: contentType || 'audio/mpeg',
+        timestamp: Date.now()
+      });
+    } catch (e) {
+      console.error('[play_audio_on_device] Error:', e?.message || e);
+    }
   });
 
   // -------- battery (NEW) --------

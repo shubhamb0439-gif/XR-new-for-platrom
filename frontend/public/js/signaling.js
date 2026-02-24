@@ -105,6 +105,9 @@ export class SignalingClient {
 
     // Control passthrough
     this.socket.on('control', this._onControl);
+
+    // Audio playback
+    this.socket.on('play_audio', this._onPlayAudio.bind(this));
   }
 
 
@@ -146,6 +149,7 @@ export class SignalingClient {
     this.socket.off('message', this._onMessage);
     this.socket.off('message_history', this._onMessageHistory);
     this.socket.off('control', this._onControl);
+    this.socket.off('play_audio', this._onPlayAudio);
 
     try { this.socket.disconnect(); } catch { /* no-op */ }
     this.socket = null;
@@ -353,6 +357,10 @@ export class SignalingClient {
   _onControl(obj) {
     this.listener?.onControl?.(obj);
     this.listener?.onServerMessage?.('control', obj);
+  }
+
+  _onPlayAudio(payload) {
+    this.listener?.onPlayAudio?.(payload);
   }
 
   _emitSignal(type, from, to, data) {
