@@ -989,6 +989,9 @@
     // clear cross-item error so it doesn't block viewing cached results elsewhere
     state.aiDiagnosisLastError = null;
 
+    // Reset EHR to search state when switching transcriptions
+    resetEHRToSearchState();
+
     const ctx = getActiveHistoryContext();
     const existingNote = getActiveNoteForItem(ctx.item);
 
@@ -3597,6 +3600,36 @@
     } catch {
       // ignore
     }
+  }
+
+  function resetEHRToSearchState() {
+    if (!dom.ehrSidebar || !dom.ehrOverlay) return;
+
+    // stop any running summary UI updates
+    try { stopSummaryTimer(); } catch { }
+    try {
+      if (state.summaryRefreshDebounce) {
+        clearTimeout(state.summaryRefreshDebounce);
+        state.summaryRefreshDebounce = null;
+      }
+    } catch { }
+
+    // clear runtime caches/state
+    state.currentPatient = null;
+    state.currentNotes = [];
+    state.noteCache.clear();
+
+    // UI back to "Enter MRN" but keep sidebar open if it was already open
+    if (dom.ehrInitialState) dom.ehrInitialState.style.display = 'flex';
+    if (dom.ehrPatientState) dom.ehrPatientState.style.display = 'none';
+
+    if (dom.mrnInput) dom.mrnInput.value = '';
+    if (dom.ehrError) {
+      dom.ehrError.textContent = '';
+      dom.ehrError.style.display = 'none';
+    }
+    if (dom.notesList) dom.notesList.innerHTML = '';
+    if (dom.noteDetail) dom.noteDetail.innerHTML = '';
   }
 
   function resetEHRState() {
