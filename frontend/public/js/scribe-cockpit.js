@@ -2159,6 +2159,14 @@
 
     const usable = isUsableDiagnosis(diag);
 
+    // Check if there's enough data (note sections OR summary) to enable button
+    const noteWrapper = getActiveNoteForItem(item);
+    const note = noteWrapper?.data || {};
+    const noteSections = buildNoteSectionsPayload(note);
+    const mrn = String(state.currentPatient?.mrn_no || '').trim() || null;
+    const summaryText = mrn ? getCachedSummaryTextForMrn(mrn) : '';
+    const hasEnoughData = noteSections.length > 0 || summaryText.trim().length > 0;
+
     if (btn) {
       if (inFlightForThis) {
         btn.textContent = 'Generating...';
@@ -2167,8 +2175,8 @@
         setAiDiagnosisButtonVisual(btn, 'generating');
       } else {
         btn.textContent = 'Generate';
-        btn.disabled = false;
-        btn.onclick = () => generateAiDiagnosisForActiveTranscript();
+        btn.disabled = !hasEnoughData;
+        btn.onclick = hasEnoughData ? () => generateAiDiagnosisForActiveTranscript() : null;
         setAiDiagnosisButtonVisual(btn, 'generate');
       }
     }
@@ -2231,6 +2239,14 @@
 
     const usable = isUsableDiagnosis(diag);
 
+    // Check if there's enough data (note sections OR summary) to enable button
+    const noteWrapper = getActiveNoteForItem(item);
+    const note = noteWrapper?.data || {};
+    const noteSections = buildNoteSectionsPayload(note);
+    const mrn = String(state.currentPatient?.mrn_no || '').trim() || null;
+    const summaryText = mrn ? getCachedSummaryTextForMrn(mrn) : '';
+    const hasEnoughData = noteSections.length > 0 || summaryText.trim().length > 0;
+
     if (inFlightForThis) {
       btn.textContent = 'Generating…';
       btn.disabled = true;
@@ -2241,9 +2257,9 @@
       setAiDiagnosisButtonVisual(btn, 'generated');
     } else {
       btn.textContent = 'Generate';
-      btn.disabled = false;
+      btn.disabled = !hasEnoughData;
       setAiDiagnosisButtonVisual(btn, 'generate');
-      btn.onclick = () => generateAiDiagnosisForActiveTranscript();
+      btn.onclick = hasEnoughData ? () => generateAiDiagnosisForActiveTranscript() : null;
     }
 
     head.appendChild(h);
