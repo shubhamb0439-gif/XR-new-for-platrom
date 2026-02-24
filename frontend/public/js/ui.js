@@ -550,15 +550,24 @@ function createSignaling() {
         },
 
         onPlayAudio: (payload) => {
+            console.log('[AUDIO] onPlayAudio called!', {
+                hasAudio: !!payload?.audio,
+                audioLength: payload?.audio?.length,
+                contentType: payload?.contentType,
+                timestamp: payload?.timestamp
+            });
+
             try {
                 const audioBase64 = payload?.audio;
                 const contentType = payload?.contentType || 'audio/mpeg';
 
                 if (!audioBase64) {
                     console.warn('[AUDIO] No audio data received');
+                    msg('System', '⚠️ No audio data');
                     return;
                 }
 
+                console.log('[AUDIO] Decoding base64 audio, length:', audioBase64.length);
                 const audioData = atob(audioBase64);
                 const arrayBuffer = new ArrayBuffer(audioData.length);
                 const uint8Array = new Uint8Array(arrayBuffer);
@@ -570,13 +579,17 @@ function createSignaling() {
                 const blob = new Blob([uint8Array], { type: contentType });
                 const audioUrl = URL.createObjectURL(blob);
 
+                console.log('[AUDIO] Created blob URL:', audioUrl, 'size:', blob.size);
+
                 const audio = new Audio(audioUrl);
+
+                console.log('[AUDIO] Attempting to play audio...');
                 audio.play().then(() => {
                     msg('System', '🔊 Playing summary audio');
-                    console.log('[AUDIO] Playing audio on device');
+                    console.log('[AUDIO] Playing audio on device - SUCCESS');
                 }).catch(err => {
                     console.error('[AUDIO] Playback error:', err);
-                    msg('System', '⚠️ Failed to play audio');
+                    msg('System', '⚠️ Failed to play audio: ' + err.message);
                 });
 
                 audio.onended = () => {
@@ -585,7 +598,7 @@ function createSignaling() {
                 };
             } catch (err) {
                 console.error('[AUDIO] Error processing audio:', err);
-                msg('System', '⚠️ Audio playback error');
+                msg('System', '⚠️ Audio playback error: ' + err.message);
             }
         },
 

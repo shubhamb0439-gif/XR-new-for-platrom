@@ -6121,16 +6121,23 @@ io.on('connection', (socket) => {
 
       const targetRoom = room || socket.data?.roomId;
       if (!targetRoom) {
-        console.warn('[play_audio_on_device] No room specified');
+        console.warn('[play_audio_on_device] No room specified, socket.data.roomId:', socket.data?.roomId);
         return;
       }
 
-      console.log('[play_audio_on_device] Broadcasting to room:', targetRoom);
+      console.log('[play_audio_on_device] Broadcasting to room:', targetRoom, 'audio size:', audio.length, 'chars');
+
+      // Get room members for debugging
+      const roomSockets = io.sockets.adapter.rooms.get(targetRoom);
+      console.log('[play_audio_on_device] Room members:', roomSockets ? roomSockets.size : 0);
+
       io.to(targetRoom).emit('play_audio', {
         audio,
         contentType: contentType || 'audio/mpeg',
         timestamp: Date.now()
       });
+
+      console.log('[play_audio_on_device] Emitted play_audio event to room');
     } catch (e) {
       console.error('[play_audio_on_device] Error:', e?.message || e);
     }

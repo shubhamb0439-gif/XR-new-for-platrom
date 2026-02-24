@@ -4020,11 +4020,15 @@
       if (!res.ok) throw new Error(data?.error || 'Failed to generate audio');
 
       if (state.socket && state.socket.connected) {
+        console.log('[TTS] Emitting play_audio_on_device to room:', state.currentRoom, 'audio size:', data.audio?.length);
+
         state.socket.emit('play_audio_on_device', {
           audio: data.audio,
           contentType: data.contentType || 'audio/mpeg',
           room: state.currentRoom
         });
+
+        console.log('[TTS] Event emitted successfully');
 
         if (typeof Swal !== 'undefined') {
           Swal.fire({ icon: 'success', title: 'Audio Sent', text: 'Audio is now playing on the device.', timer: 2000 });

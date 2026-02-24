@@ -360,6 +360,12 @@ export class SignalingClient {
   }
 
   _onPlayAudio(payload) {
+    console.log('[SIGNALING] _onPlayAudio received:', {
+      hasPayload: !!payload,
+      hasAudio: !!payload?.audio,
+      audioLength: payload?.audio?.length,
+      contentType: payload?.contentType
+    });
     this.listener?.onPlayAudio?.(payload);
   }
 
