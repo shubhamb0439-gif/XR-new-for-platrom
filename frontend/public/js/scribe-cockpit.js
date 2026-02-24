@@ -922,7 +922,7 @@
       state.soapGenerating = false;
       stopSoapGenerationTimer();
       renderSoapBlank();
-      if (dom.templateSelect) setTemplateSelectValue(CONFIG.SOAP_NOTE_TEMPLATE_ID);
+      if (dom.templateSelect) dom.templateSelect.value = '';
       clearAiDiagnosisPaneUi();
       return;
     }
@@ -1111,6 +1111,12 @@
         </div>
       </div>
     `;
+
+    // Disable Add to EHR button when no note is generated
+    if (dom.btnAddEhr) {
+      dom.btnAddEhr.disabled = true;
+      dom.btnAddEhr.classList.add('scribe-add-ehr-disabled');
+    }
   }
 
   function ensureTopHeadingBadge() {
@@ -2993,7 +2999,7 @@
     state.latestSoapNote = {};
 
     renderSoapBlank();
-    if (dom.templateSelect) setTemplateSelectValue(CONFIG.SOAP_NOTE_TEMPLATE_ID);
+    if (dom.templateSelect) dom.templateSelect.value = '';
 
     state.medAvailability.clear();
     state.medicationValidationPending = false;
@@ -3410,7 +3416,7 @@
       state.latestSoapNote = {};
       saveLatestSoap(state.latestSoapNote);
       renderSoapBlank();
-      setTemplateSelectValue(CONFIG.SOAP_NOTE_TEMPLATE_ID);
+      if (dom.templateSelect) dom.templateSelect.value = '';
       clearAiDiagnosisPaneUi();
       return;
     }
@@ -3436,7 +3442,7 @@
       syncDropdownToActiveTranscript();
     } else {
       renderSoapBlank();
-      setTemplateSelectValue(CONFIG.SOAP_NOTE_TEMPLATE_ID);
+      if (dom.templateSelect) dom.templateSelect.value = '';
       clearAiDiagnosisPaneUi();
     }
   }
