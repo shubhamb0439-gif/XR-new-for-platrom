@@ -66,8 +66,10 @@ export class VoiceController {
     this._fullTranscript = '';
     this._detectedMRN = null;
     this._detectedTemplate = null;
+    this._availableTemplates = [];
 
     this._bindHandlers();
+    this._loadTemplatesFromAPI();
   }
 
   static isAvailable() {
@@ -286,31 +288,51 @@ export class VoiceController {
     return null;
   }
 
+  async _loadTemplatesFromAPI() {
+    try {
+      // Check if window has template data (from scribe-cockpit)
+      if (window.getAvailableTemplates && typeof window.getAvailableTemplates === 'function') {
+        const templates = await window.getAvailableTemplates();
+        if (templates && templates.length > 0) {
+          this._availableTemplates = templates;
+          console.log('[VOICE] Loaded templates dynamically:', templates.length);
+          return;
+        }
+      }
+
+      // Fallback: try to get from DOM template select
+      const templateSelect = document.getElementById('templateSelect');
+      if (templateSelect) {
+        const options = Array.from(templateSelect.options);
+        this._availableTemplates = options
+          .filter(opt => opt.value)
+          .map(opt => opt.textContent.trim());
+        console.log('[VOICE] Loaded templates from DOM:', this._availableTemplates.length);
+      }
+    } catch (e) {
+      console.warn('[VOICE] Could not load templates dynamically:', e);
+    }
+  }
+
+  setTemplates(templates) {
+    if (Array.isArray(templates) && templates.length > 0) {
+      this._availableTemplates = templates;
+      console.log('[VOICE] Templates updated:', templates.length);
+    }
+  }
+
   _detectTemplate(text) {
     if (!text) return null;
 
-    const templates = [
-      'SOAP Note',
-      'Admission Note',
-      'Consultation Note',
-      'Diagnostic Report',
-      'Discharge Summary',
-      'Follow Up Visit Note',
-      'Followup Visit',
-      'History And Physical',
-      'Hospital Followup Visit',
-      'New Patient Visit',
-      'Operative Report',
-      'Preop Visit',
-      'Procedure Note',
-      'Procedure-Note Abdominal Aortography',
-      'Procedure-Note Right And Left Heart Catheterization',
-      'Progress Note Soap',
-      'Stress Test Exercise MPI',
-      'Telehealth Visit',
-      'Vein Consult',
-      'Vein Followup'
-    ];
+    // Use dynamically loaded templates
+    const templates = this._availableTemplates.length > 0
+      ? this._availableTemplates
+      : [];
+
+    if (templates.length === 0) {
+      console.warn('[VOICE] No templates available for detection');
+      return null;
+    }
 
     const lowerText = text.toLowerCase();
 

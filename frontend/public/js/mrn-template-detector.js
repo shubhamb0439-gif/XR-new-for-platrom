@@ -3,28 +3,34 @@
 
 export class MRNTemplateDetector {
   constructor() {
-    this.templates = [
-      'SOAP Note',
-      'Admission Note',
-      'Consultation Note',
-      'Diagnostic Report',
-      'Discharge Summary',
-      'Follow Up Visit Note',
-      'Followup Visit',
-      'History And Physical',
-      'Hospital Followup Visit',
-      'New Patient Visit',
-      'Operative Report',
-      'Preop Visit',
-      'Procedure Note',
-      'Procedure-Note Abdominal Aortography',
-      'Procedure-Note Right And Left Heart Catheterization',
-      'Progress Note Soap',
-      'Stress Test Exercise MPI',
-      'Telehealth Visit',
-      'Vein Consult',
-      'Vein Followup'
-    ];
+    this.templates = [];
+    this._loadTemplates();
+  }
+
+  async _loadTemplates() {
+    try {
+      // Try to get templates from window (injected by scribe-cockpit)
+      if (window.getAvailableTemplates && typeof window.getAvailableTemplates === 'function') {
+        const templates = await window.getAvailableTemplates();
+        if (templates && templates.length > 0) {
+          this.templates = templates;
+          console.log('[MRN-DETECTOR] Loaded templates dynamically:', templates.length);
+          return;
+        }
+      }
+
+      // Fallback: try to get from DOM
+      const templateSelect = document.getElementById('templateSelect');
+      if (templateSelect) {
+        const options = Array.from(templateSelect.options);
+        this.templates = options
+          .filter(opt => opt.value && !opt.disabled)
+          .map(opt => opt.textContent.trim());
+        console.log('[MRN-DETECTOR] Loaded templates from DOM:', this.templates.length);
+      }
+    } catch (e) {
+      console.warn('[MRN-DETECTOR] Could not load templates:', e);
+    }
   }
 
   /**

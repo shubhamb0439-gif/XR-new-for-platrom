@@ -2713,6 +2713,9 @@
       // ignore
     }
 
+    // Sync templates with voice controller after loading
+    syncTemplatesWithVoiceController();
+
     syncDropdownToActiveTranscript();
 
     dom.templateSelect.onchange = () => {
@@ -4077,6 +4080,26 @@
 
   // Expose to window for voice controller integration
   window.handleMRNTemplateDetection = handleMRNTemplateDetection;
+
+  window.getAvailableTemplates = function() {
+    if (!dom.templateSelect) return [];
+
+    const options = Array.from(dom.templateSelect.options);
+    const templates = options
+      .filter(opt => opt.value && !opt.disabled)
+      .map(opt => opt.textContent.trim());
+
+    return templates;
+  };
+
+  // Update voice controller with templates when they're loaded
+  function syncTemplatesWithVoiceController() {
+    if (window.voiceController && typeof window.voiceController.setTemplates === 'function') {
+      const templates = window.getAvailableTemplates();
+      window.voiceController.setTemplates(templates);
+      console.log('[SCRIBE] Synced templates with voice controller:', templates.length);
+    }
+  }
 
   // =============================================================================
   //  EHR SEARCH
