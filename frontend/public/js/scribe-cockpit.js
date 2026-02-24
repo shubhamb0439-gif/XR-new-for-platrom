@@ -2784,8 +2784,7 @@
       // ignore
     }
 
-    // Sync templates with voice controller after loading
-    syncTemplatesWithVoiceController();
+    // Voice controller removed - cockpit only receives transcripts via WebSocket
 
     syncDropdownToActiveTranscript();
 
@@ -4163,14 +4162,9 @@
     return templates;
   };
 
-  // Update voice controller with templates when they're loaded
-  function syncTemplatesWithVoiceController() {
-    if (window.voiceController && typeof window.voiceController.setTemplates === 'function') {
-      const templates = window.getAvailableTemplates();
-      window.voiceController.setTemplates(templates);
-      console.log('[SCRIBE] Synced templates with voice controller:', templates.length);
-    }
-  }
+  // REMOVED: Voice controller sync
+  // Scribe cockpit no longer has its own voice controller
+  // It only receives transcripts via WebSocket from the device
 
   // =============================================================================
   //  EHR SEARCH
