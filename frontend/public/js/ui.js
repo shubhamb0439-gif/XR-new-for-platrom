@@ -913,6 +913,9 @@ elBtnVideo.addEventListener('click', () => {
 
 // ----------------- Voice + Notes (partial/final transcripts) -----------------
 let SR = null, rec = null, speechIntentLang = 'en-US';
+let conversationBuffer = '';
+let lastFinalSentAt = 0;
+const FINAL_SEND_DELAY_MS = 1500;
 
 function setupSR() {
     SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -926,32 +929,39 @@ function setupSR() {
         let interim = '';
         let finalTxt = '';
         for (let i = e.resultIndex; i < e.results.length; i++) {
-            const t = e.results[i][0].transcript.toLowerCase().trim();
+            const t = e.results[i][0].transcript.trim();
             if (e.results[i].isFinal) finalTxt += (finalTxt ? ' ' : '') + t;
             else interim += (interim ? ' ' : '') + t;
         }
 
         if (interim && recordingActive) {
-            const now = Date.now();
-            if (now - lastPartialSentAt > PARTIAL_THROTTLE_MS) {
-                lastPartialSentAt = now;
-                sendTranscript(interim, false);
-            }
+            elChip.textContent = `Listening: ${interim}`;
+            elChip.hidden = false;
         }
 
         if (finalTxt) {
-            lastRecognizedCommand = finalTxt;
+            const finalLower = finalTxt.toLowerCase();
+            lastRecognizedCommand = finalLower;
             elChip.textContent = `Heard: ${finalTxt}`;
             elChip.hidden = false;
 
-            if (/\bcreate\b/.test(finalTxt)) {
+            if (/\bcreate\b/.test(finalLower)) {
                 onStopRecordingNote();
                 return;
             } else if (recordingActive) {
-                // buffer note only; send once at stop
                 noteBuffer += (noteBuffer ? ' ' : '') + finalTxt;
+                conversationBuffer += (conversationBuffer ? ' ' : '') + finalTxt;
+
+                const now = Date.now();
+                if (now - lastFinalSentAt > FINAL_SEND_DELAY_MS) {
+                    lastFinalSentAt = now;
+                    if (conversationBuffer.trim()) {
+                        sendTranscript(conversationBuffer.trim(), true);
+                        conversationBuffer = '';
+                    }
+                }
             } else {
-                processVoiceCommand(finalTxt);
+                processVoiceCommand(finalLower);
             }
         }
     };
@@ -1033,12 +1043,15 @@ function onStopRecordingNote() {
 }
 function finalizeRecordingNote() {
     recordingActive = false;
+
+    if (conversationBuffer.trim()) {
+        sendTranscript(conversationBuffer.trim(), true);
+        conversationBuffer = '';
+    }
+
     const finalText = noteBuffer.trim();
     msg('System', `Note saved to console (${finalText.length} chars).`);
 
-    if (finalText) sendTranscript(finalText, true);
-
-    // 🚀 Trigger SOAP on Dock/Scribe (action+command for compatibility)
     const targetId = pairedDesktopId;
     if (!targetId) {
         msg('System', '⚠️ Not paired yet. Wait for room_joined.');
@@ -1050,7 +1063,6 @@ function finalizeRecordingNote() {
             action: 'scribe_flush'
         });
     }
-
 
     noteBuffer = '';
 }

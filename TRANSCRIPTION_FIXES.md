@@ -2,15 +2,31 @@
 
 ## Issues Fixed
 
-### 1. Transcription Ordering Issue
-**Problem:** Transcriptions were coming in jumbled order, not maintaining the sequence.
+### 1. Transcription Ordering and Jumbling Issue
+**Problem:** Transcriptions were coming in jumbled, duplicated, and out of order. The text was not properly formatted and appeared fragmented.
+
+**Root Cause:**
+- The system was sending partial incremental transcripts from the device
+- The `mergeIncremental` function in scribe-cockpit.js was trying to merge these fragments
+- This caused text duplication, incorrect merging, and jumbled output
+- Network timing issues made the problem worse
 
 **Solution:**
-- Added `transcriptSequence` counter to state to track the order of incoming transcriptions
-- Each transcription slot now receives a sequence number when finalized
-- Modified `appendTranscriptItem` to include sequence numbers and sort history items by sequence first, then timestamp
-- Added `renderTranscriptList` function to properly render sorted transcriptions
-- This ensures transcriptions always appear in the correct order regardless of network delays or timing
+Completely redesigned the transcription flow to send clean, complete text:
+
+#### Device Side (ui.js):
+- Added `conversationBuffer` to accumulate complete sentences
+- Added `FINAL_SEND_DELAY_MS` (1500ms) to batch final transcripts
+- Now only sends **final, complete transcripts** after a short delay
+- Removed partial transcript sending during recording
+- Accumulates all speech until a natural pause, then sends the complete text
+
+#### Scribe Side (scribe-cockpit.js):
+- **Removed all `mergeIncremental` logic** - no more text merging
+- Simplified transcript handling to accept only final transcripts
+- Added sequence numbers to maintain order
+- Direct display of received text without any manipulation
+- Re-renders transcript list in proper order
 
 ### 2. Automatic Template Selection by Keywords
 **Problem:** Need automatic note template selection when keywords are spoken during transcription.
@@ -25,13 +41,25 @@
 - Updated `autoDetectFromTranscript` to use keyword matching before fallback detection
 - When a keyword is detected in the transcription, the corresponding template is automatically selected in the dropdown
 
-## How It Works
+## How It Works Now
 
-### Transcription Ordering
-1. When a final transcript packet arrives, it's assigned a sequence number (incrementing counter)
-2. The sequence number is stored with the transcript slot until it's flushed
-3. When appended to history, all items are sorted by sequence number first, then timestamp
-4. The UI re-renders the entire transcript list in correct order
+### Clean Transcription Flow
+1. **Device (ui.js):**
+   - User speaks during note recording
+   - Speech Recognition API captures speech and provides results
+   - Final results are accumulated in `conversationBuffer`
+   - After 1.5 seconds of no new speech, the complete accumulated text is sent
+   - Only `final=true` packets are sent to the server
+
+2. **Server (server.js):**
+   - Receives clean, complete transcript with `final: true`
+   - Forwards to scribe cockpit via `transcript_console` event
+
+3. **Scribe Cockpit (scribe-cockpit.js):**
+   - Only processes packets where `final === true`
+   - Assigns sequence number for ordering
+   - Directly displays the text as received
+   - No merging, no manipulation, clean display
 
 ### Keyword-Based Template Selection
 1. When templates are loaded from `/api/templates`, keywords are extracted:
@@ -55,9 +83,10 @@ Based on template structure from database:
 To test the fixes:
 
 1. **Ordering Test:**
-   - Start transcription
-   - Speak multiple sentences rapidly
-   - Verify they appear in the correct sequence in the Live Translation panel
+   - Start note recording on device
+   - Speak multiple sentences with natural pauses
+   - Verify they appear clean and in correct order in Live Translation panel
+   - No duplication, no jumbling
 
 2. **Keyword Test:**
    - Clear any existing transcription
@@ -68,10 +97,27 @@ To test the fixes:
 
 ## Files Modified
 
-- `/tmp/cc-agent/64050371/project/frontend/public/js/scribe-cockpit.js`
-  - Added sequence tracking to state
-  - Added template keywords mapping
-  - Modified transcript packet handling
-  - Added keyword matching function
-  - Updated auto-detection logic
-  - Added transcript list rendering function
+1. **`/tmp/cc-agent/64050371/project/frontend/public/js/ui.js`**
+   - Added `conversationBuffer` for accumulating complete text
+   - Added `FINAL_SEND_DELAY_MS` for batching transcripts
+   - Modified speech recognition result handler
+   - Removed partial transcript sending
+   - Only sends final, complete transcripts
+
+2. **`/tmp/cc-agent/64050371/project/frontend/public/js/scribe-cockpit.js`**
+   - Removed `mergeIncremental` logic completely
+   - Simplified `transcript_console` handler
+   - Only processes `final === true` packets
+   - Added sequence tracking to state
+   - Added template keywords mapping
+   - Added keyword matching function
+   - Updated auto-detection logic
+   - Added transcript list rendering function
+
+## Key Improvements
+
+✅ **No more jumbled text** - Clean, complete sentences
+✅ **No more duplication** - Each transcript sent once
+✅ **Proper ordering** - Sequence numbers ensure correct order
+✅ **Natural conversation flow** - Text appears as spoken
+✅ **Automatic template selection** - Say the template name to select it

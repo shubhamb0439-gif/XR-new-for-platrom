@@ -2988,32 +2988,12 @@
       const p = packet.data || {};
       const { from, to, text = '', final = false, timestamp } = p;
 
-      const key = transcriptKey(from, to);
-      const slot =
-        (state.transcriptState.byKey[key] ||= { partial: '', paragraph: '', flushTimer: null, sequence: null });
-
-      if (!final) {
-        slot.partial = text;
+      if (!final || !text) {
         return;
       }
 
-      const mergedFinal = mergeIncremental(slot.partial, text);
-      slot.partial = '';
-      slot.paragraph = mergeIncremental(slot.paragraph ? slot.paragraph + ' ' : '', mergedFinal);
-
-      if (!slot.sequence) {
-        slot.sequence = ++state.transcriptSequence;
-      }
-
-      if (slot.flushTimer) clearTimeout(slot.flushTimer);
-      slot.flushTimer = setTimeout(() => {
-        if (slot.paragraph) {
-          appendTranscriptItem({ from, to, text: slot.paragraph, timestamp, sequence: slot.sequence });
-          slot.paragraph = '';
-          slot.sequence = null;
-        }
-        slot.flushTimer = null;
-      }, CONFIG.TRANSCRIPT_FLUSH_MS);
+      const sequence = ++state.transcriptSequence;
+      appendTranscriptItem({ from, to, text: text.trim(), timestamp, sequence });
 
       return;
     }
