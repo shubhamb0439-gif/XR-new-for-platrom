@@ -2360,7 +2360,7 @@
     const mrn = String(state.currentPatient?.mrn_no || '').trim() || null;
     const summaryText = mrn ? getCachedSummaryTextForMrn(mrn) : '';
 
-    if (!noteSections.length || !summaryText) {
+    if (!noteSections.length && !summaryText) {
       state.aiDiagnosisLastError = 'AI does not have enough data to provide diagnosis.';
       renderAiDiagnosisUi(null);
       return;
