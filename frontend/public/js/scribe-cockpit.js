@@ -1010,6 +1010,37 @@
     }
   }
 
+  // Auto-detect note type and MRN from transcript text
+  function autoDetectFromTranscript(text) {
+    const textLower = text.toLowerCase();
+    const result = {
+      noteType: null,
+      mrn: null
+    };
+
+    // Detect note type
+    if (textLower.includes('soap note') || textLower.includes('soap-note')) {
+      result.noteType = CONFIG.SOAP_NOTE_TEMPLATE_ID;
+    }
+
+    // Detect MRN - look for patterns like "MRN 12345" or "MRN: 12345" or "medical record number 12345"
+    const mrnPatterns = [
+      /\bm\.?r\.?n\.?\s*:?\s*([a-z0-9]+)/i,
+      /\bmedical\s+record\s+number\s*:?\s*([a-z0-9]+)/i,
+      /\bpatient\s+id\s*:?\s*([a-z0-9]+)/i
+    ];
+
+    for (const pattern of mrnPatterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        result.mrn = match[1].trim();
+        break;
+      }
+    }
+
+    return result;
+  }
+
   function appendTranscriptItem({ from, to, text, timestamp }) {
     if (!dom.transcript || !text) return;
 
@@ -1035,10 +1066,29 @@
 
     setActiveTranscriptId(item.id);
 
-    // Don't automatically generate note - user must select template first
-    // Clear the SOAP note area and show a prompt
-    renderSoapBlank();
-    clearAiDiagnosisPaneUi();
+    // Auto-detect note type and MRN from transcript
+    const detected = autoDetectFromTranscript(text);
+
+    // Auto-select note type if detected
+    if (detected.noteType && dom.templateSelect) {
+      dom.templateSelect.value = detected.noteType;
+      // Trigger change event to generate note
+      dom.templateSelect.dispatchEvent(new Event('change'));
+    } else {
+      // Don't automatically generate note - user must select template first
+      // Clear the SOAP note area and show a prompt
+      renderSoapBlank();
+      clearAiDiagnosisPaneUi();
+    }
+
+    // Auto-search MRN if detected
+    if (detected.mrn && dom.mrnInput) {
+      dom.mrnInput.value = detected.mrn;
+      // Trigger the search
+      if (dom.mrnSearchButton) {
+        dom.mrnSearchButton.click();
+      }
+    }
   }
 
   // =============================================================================

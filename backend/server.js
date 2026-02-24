@@ -2049,6 +2049,11 @@ app.post('/ehr/ai/diagnosis', async (req, res) => {
     const note_sections = req.body?.note_sections;
     const summary_text = String(req.body?.summary_text || '').trim();
 
+    console.log('[AI DIAGNOSIS] Request received:', {
+      note_sections_count: Array.isArray(note_sections) ? note_sections.length : 'not-array',
+      summary_length: summary_text.length
+    });
+
     // Validate the exact fields you send from scribe cockpit
     if (!Array.isArray(note_sections)) {
       return res.status(400).json({ error: 'note_sections must be an array' });
@@ -2056,6 +2061,11 @@ app.post('/ehr/ai/diagnosis', async (req, res) => {
 
     // Convert note_sections -> soapText
     const soapText = noteSectionsToSoapText(note_sections);
+
+    console.log('[AI DIAGNOSIS] Converted:', {
+      soapText_length: soapText.trim().length,
+      has_summary: summary_text.length > 0
+    });
 
     // Allow if either note or summary has content
     if (!soapText.trim() && !summary_text) {
