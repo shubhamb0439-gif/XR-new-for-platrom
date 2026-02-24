@@ -1033,7 +1033,18 @@
     for (const pattern of mrnPatterns) {
       const match = text.match(pattern);
       if (match && match[1]) {
-        result.mrn = match[1].trim();
+        let detectedMrn = match[1].trim().toUpperCase();
+
+        // Convert to MRNAB123 format if it's just a number
+        if (/^\d+$/.test(detectedMrn)) {
+          result.mrn = `MRNAB${detectedMrn}`;
+        } else if (!detectedMrn.startsWith('MRN')) {
+          // If it has letters but doesn't start with MRN, add MRNAB prefix
+          result.mrn = `MRNAB${detectedMrn}`;
+        } else {
+          // Already has MRN prefix or is in correct format
+          result.mrn = detectedMrn;
+        }
         break;
       }
     }
