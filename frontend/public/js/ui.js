@@ -732,6 +732,19 @@ function createSignaling() {
                         btn.textContent = 'Pause';
                         console.log('✅ [VISION DEVICE] onplay: Button set to Pause');
                     }
+                    // Notify cockpit that audio is playing
+                    try {
+                        if (signaling?.socket?.connected) {
+                            signaling.socket.emit('audio_state_changed', {
+                                deviceId: ANDROID_XR_ID,
+                                state: 'playing',
+                                timestamp: Date.now()
+                            });
+                            console.log('✅ [AUDIO] Notified cockpit: audio playing');
+                        }
+                    } catch (err) {
+                        console.warn('[AUDIO] Failed to notify cockpit:', err);
+                    }
                 };
 
                 currentAudio.onpause = () => {
@@ -746,6 +759,19 @@ function createSignaling() {
                         if (btn) {
                             btn.textContent = 'Play';
                             console.log('✅ [VISION DEVICE] onpause: Button set to Play');
+                        }
+                        // Notify cockpit that audio is paused
+                        try {
+                            if (signaling?.socket?.connected) {
+                                signaling.socket.emit('audio_state_changed', {
+                                    deviceId: ANDROID_XR_ID,
+                                    state: 'paused',
+                                    timestamp: Date.now()
+                                });
+                                console.log('✅ [AUDIO] Notified cockpit: audio paused');
+                            }
+                        } catch (err) {
+                            console.warn('[AUDIO] Failed to notify cockpit:', err);
                         }
                     }
                 };

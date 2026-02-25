@@ -3263,6 +3263,31 @@
         }
       });
 
+      state.socket.on('audio_state_changed', (data) => {
+        console.log('[SCRIBE] Audio state changed notification received:', data);
+        const speakerBtn = document.getElementById('speakerBtn');
+        if (!speakerBtn) return;
+
+        if (data.state === 'playing') {
+          speakerBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="6" y="4" width="4" height="16"></rect>
+              <rect x="14" y="4" width="4" height="16"></rect>
+            </svg>
+            Playing
+          `;
+          console.log('[SCRIBE] Speaker button updated to "Playing"');
+        } else if (data.state === 'paused') {
+          speakerBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            Play
+          `;
+          console.log('[SCRIBE] Speaker button updated to "Play"');
+        }
+      });
+
       state.socket.on('disconnect', () => {
         const prevRoom = state.currentRoom;
         state.currentRoom = null;
