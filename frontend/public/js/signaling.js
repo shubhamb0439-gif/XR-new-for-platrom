@@ -254,7 +254,11 @@ export class SignalingClient {
     console.log('[SIGNALING] 📋 play_audio listeners registered:', this.socket?.listeners('play_audio')?.length || 0);
 
     // ✅ Option B strict: identify only (no legacy join)
-    this.socket.emit('identify', { deviceName: this.deviceName, xrId: this.xrId });
+    this.socket.emit('identify', {
+      deviceName: this.deviceName,
+      xrId: this.xrId,
+      clientType: 'device'  // 🔑 CRITICAL: Tell server this is a device, not cockpit
+    });
 
     // Optional: request self-only list while waiting (server returns self-only when unpaired)
     this.socket.emit('request_device_list');

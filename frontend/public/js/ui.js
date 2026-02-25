@@ -450,7 +450,15 @@ function createSignaling() {
             isServerConnected = true;
             setStatus(true);
             msg('System', 'Connected to server');
-            console.log('[VISION DEVICE] Connected - onPlayAudio handler registered:', !!signaling.listener?.onPlayAudio);
+            console.log('[VISION DEVICE] ✅ Connected - Socket ID:', signaling?.socket?.id);
+            console.log('[VISION DEVICE] ✅ onPlayAudio handler registered:', !!signaling.listener?.onPlayAudio);
+            console.log('[VISION DEVICE] ✅ Socket play_audio listeners:', signaling?.socket?.listeners('play_audio')?.length || 0);
+
+            // TEST: Send a test message to confirm socket is working
+            if (signaling?.socket) {
+                console.log('[VISION DEVICE] 🧪 Testing socket emit capability...');
+                signaling.socket.emit('test_ping', { from: ANDROID_XR_ID, ts: Date.now() });
+            }
 
             // start 12s telemetry
             telemetry = new TelemetryReporter({
@@ -553,11 +561,13 @@ function createSignaling() {
         },
 
         onPlayAudio: (payload) => {
-            console.log('✅ [VISION DEVICE] AUDIO RECEIVED', {
+            console.log('🔊🔊🔊 [VISION DEVICE] ★★★ AUDIO RECEIVED ★★★ 🔊🔊🔊', {
+                hasPayload: !!payload,
                 hasAudio: !!payload?.audio,
                 audioLength: payload?.audio?.length,
                 contentType: payload?.contentType,
-                timestamp: payload?.timestamp
+                timestamp: payload?.timestamp,
+                payloadKeys: payload ? Object.keys(payload) : []
             });
 
             try {

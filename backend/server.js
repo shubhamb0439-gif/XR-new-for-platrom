@@ -5495,6 +5495,7 @@ io.on('connection', (socket) => {
     // ✅ Accept this socket
     socket.data.deviceName = deviceName || 'Unknown';
     socket.data.xrId = XR;
+    socket.data.clientType = clientType || 'device';  // 🔑 Store clientType for filtering
 
     // ✅ Option B: Redis owner lock (authoritative online/offline)
     try {
@@ -6159,6 +6160,10 @@ io.on('connection', (socket) => {
           const sock = io.sockets.sockets.get(socketId);
           if (sock) {
             console.log(`  - Socket ${socketId}: xrId=${sock.data?.xrId}, deviceName=${sock.data?.deviceName}, roomId=${sock.data?.roomId}, clientType=${sock.data?.clientType}`);
+
+            // Check if this socket has play_audio listeners
+            const listeners = sock.listeners('play_audio');
+            console.log(`    Listeners for 'play_audio':`, listeners.length);
           }
         }
       } else {
@@ -6174,12 +6179,12 @@ io.on('connection', (socket) => {
 
       console.log('[play_audio_on_device] ✅ Emitted play_audio event to room');
 
-      // ALSO emit directly to each device socket (bypass room)
+      // ALSO emit directly to EVERY socket in the room (not just devices)
       if (roomSockets && roomSockets.size > 0) {
         for (const socketId of roomSockets) {
           const sock = io.sockets.sockets.get(socketId);
-          if (sock && sock.data?.clientType !== 'cockpit') {
-            console.log(`[play_audio_on_device] 🎯 DIRECT emit to device socket ${socketId} (xrId=${sock.data?.xrId})`);
+          if (sock) {
+            console.log(`[play_audio_on_device] 🎯 DIRECT emit to socket ${socketId} (xrId=${sock.data?.xrId}, clientType=${sock.data?.clientType})`);
             sock.emit('play_audio', {
               audio,
               contentType: contentType || 'audio/mpeg',
