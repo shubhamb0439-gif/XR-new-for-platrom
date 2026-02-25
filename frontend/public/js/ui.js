@@ -263,7 +263,7 @@ function startAudioTimeout() {
         resetAudioState();
         const btnAudio = document.getElementById('btnAudio');
         if (btnAudio) {
-            btnAudio.textContent = 'Play';
+            btnAudio.textContent = 'Audio';
             btnAudio.disabled = true;
             btnAudio.style.opacity = '0.5';
             btnAudio.style.cursor = 'not-allowed';
@@ -707,7 +707,7 @@ function createSignaling() {
                     console.log('✅ [VISION DEVICE] Playback finished');
                     resetAudioState();
                     if (btnAudio) {
-                        btnAudio.textContent = 'Play';
+                        btnAudio.textContent = 'Audio';
                         btnAudio.disabled = true;
                         btnAudio.style.opacity = '0.5';
                         btnAudio.style.cursor = 'not-allowed';
