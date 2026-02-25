@@ -295,11 +295,15 @@ function toggleAudioPlayback() {
 
     const btnAudio = document.getElementById('btnAudio');
 
-    if (isAudioPlaying) {
+    // Check the actual audio state instead of our tracking variable
+    // This prevents race conditions during initialization
+    if (!currentAudio.paused) {
+        // Audio is currently playing, so pause it
         currentAudio.pause();
         if (btnAudio) btnAudio.textContent = 'Play';
         console.log('⏸️ [AUDIO] Paused');
     } else {
+        // Audio is paused, so play it
         currentAudio.play().then(() => {
             if (btnAudio) btnAudio.textContent = 'Pause';
             console.log('▶️ [AUDIO] Resumed');
