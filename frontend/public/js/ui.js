@@ -697,25 +697,7 @@ function createSignaling() {
                     console.log('✅ [VISION DEVICE] Audio button set to Pause');
                 }
 
-                console.log('✅ [VISION DEVICE] Attempting to auto-play audio...');
-                isAudioPlaying = true;
-                isAudioPaused = false;
-
-                currentAudio.play().then(() => {
-                    msg('System', '🔊 Playing summary audio');
-                    console.log('✅ [VISION DEVICE] Playing audio - SUCCESS');
-
-                    // Start 5-minute timeout
-                    startAudioTimeout();
-                }).catch(err => {
-                    console.error('❌ [VISION DEVICE] Playback error:', err);
-                    msg('System', '⚠️ Failed to play audio: ' + err.message);
-                    isAudioPlaying = false;
-                    if (btnAudio) {
-                        btnAudio.textContent = 'Play';
-                    }
-                });
-
+                // Set up event handlers BEFORE playing to avoid race conditions
                 currentAudio.onended = () => {
                     console.log('✅ [VISION DEVICE] Playback finished');
                     resetAudioState();
@@ -725,28 +707,44 @@ function createSignaling() {
                         btnAudio.style.opacity = '0.5';
                         btnAudio.style.cursor = 'not-allowed';
                     }
-                    // Notify cockpit that playback completed
                     notifyCockpitPlaybackComplete();
                 };
 
                 currentAudio.onpause = () => {
-                    if (!currentAudio.ended) {
+                    // Only handle pause if audio has started playing and hasn't ended
+                    if (isAudioPlaying && !currentAudio.ended) {
+                        console.log('⏸️ [VISION DEVICE] Audio paused by user');
                         isAudioPaused = true;
                         isAudioPlaying = false;
-                        // Start 5-minute timeout when paused
                         startAudioTimeout();
                     }
                 };
 
                 currentAudio.onplay = () => {
+                    console.log('▶️ [VISION DEVICE] Audio playing');
                     isAudioPlaying = true;
                     isAudioPaused = false;
-                    // Clear timeout when playing resumes
                     if (audioTimeoutId) {
                         clearTimeout(audioTimeoutId);
                         audioTimeoutId = null;
                     }
                 };
+
+                console.log('✅ [VISION DEVICE] Attempting to auto-play audio...');
+                isAudioPlaying = true;
+                isAudioPaused = false;
+
+                currentAudio.play().then(() => {
+                    msg('System', '🔊 Playing summary audio');
+                    console.log('✅ [VISION DEVICE] Playing audio - SUCCESS');
+                }).catch(err => {
+                    console.error('❌ [VISION DEVICE] Playback error:', err);
+                    msg('System', '⚠️ Failed to play audio: ' + err.message);
+                    isAudioPlaying = false;
+                    if (btnAudio) {
+                        btnAudio.textContent = 'Play';
+                    }
+                });
             } catch (err) {
                 console.error('[AUDIO] Error processing audio:', err);
                 msg('System', '⚠️ Audio playback error: ' + err.message);
