@@ -1583,6 +1583,86 @@ app.post("/api/notes/generate", async (req, res) => {
   }
 });
 
+/**
+ * POST /api/tts/convert
+ * Converts text to speech using ElevenLabs API and sends to device
+ * Body: { text: string, deviceId: string }
+ */
+app.post("/api/tts/convert", async (req, res) => {
+  try {
+    const { text, deviceId } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: "text is required and cannot be empty" });
+    }
+
+    if (!deviceId || !deviceId.trim()) {
+      return res.status(400).json({ error: "deviceId is required" });
+    }
+
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey || apiKey === 'your_elevenlabs_api_key_here') {
+      return res.status(500).json({ error: "ElevenLabs API key not configured" });
+    }
+
+    dlog(`[TTS] Converting text to speech for device: ${deviceId}`);
+
+    // ElevenLabs API endpoint (using default voice)
+    const voiceId = "21m00Tcm4TlvDq8ikWAM"; // Rachel voice (default)
+    const elevenLabsUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+
+    // Make request to ElevenLabs
+    const response = await axios.post(
+      elevenLabsUrl,
+      {
+        text: text,
+        model_id: "eleven_monolingual_v1",
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75
+        }
+      },
+      {
+        headers: {
+          'Accept': 'audio/mpeg',
+          'xi-api-key': apiKey,
+          'Content-Type': 'application/json'
+        },
+        responseType: 'arraybuffer'
+      }
+    );
+
+    // Convert audio to base64
+    const audioBase64 = Buffer.from(response.data).toString('base64');
+    const audioUrl = `data:audio/mpeg;base64,${audioBase64}`;
+
+    dlog(`[TTS] Audio generated successfully, sending to device: ${deviceId}`);
+
+    // Send audio to device via socket
+    const sockets = await safeFetchSockets(io);
+    const deviceSocket = sockets.find(s => s.data?.xrId === deviceId);
+
+    if (deviceSocket) {
+      deviceSocket.emit('play_audio', {
+        audioUrl: audioUrl,
+        type: 'summary_tts'
+      });
+      dlog(`[TTS] Audio sent to device socket: ${deviceSocket.id}`);
+      return res.json({ success: true, message: 'Audio sent to device' });
+    } else {
+      dwarn(`[TTS] Device not found: ${deviceId}`);
+      return res.status(404).json({ error: 'Device not connected' });
+    }
+
+  } catch (err) {
+    derr("[TTS_API] /api/tts/convert failed:", err?.message || err);
+    if (err.response) {
+      derr("[TTS_API] ElevenLabs error:", err.response.status, err.response.data);
+    }
+    return res.status(500).json({ error: "Failed to convert text to speech" });
+  }
+});
+
 app.get('/ehr/patient/:mrn', async (req, res) => {
   dlog('[EHR_API] /ehr/patient/:mrn request received');
 

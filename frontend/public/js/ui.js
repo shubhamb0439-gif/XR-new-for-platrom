@@ -147,6 +147,36 @@ function applyDeviceReadOnlyUI() {
     }
 }
 
+// Play audio from base64 data URL
+function playAudioFromUrl(audioUrl) {
+    if (!audioUrl) {
+        console.warn('[AUDIO] No audio URL provided');
+        return;
+    }
+
+    try {
+        const audio = new Audio(audioUrl);
+        audio.play().then(() => {
+            console.log('[AUDIO] Playing audio successfully');
+        }).catch(err => {
+            console.error('[AUDIO] Failed to play audio:', err);
+            msg('System', 'Failed to play audio');
+        });
+
+        audio.addEventListener('ended', () => {
+            console.log('[AUDIO] Audio playback completed');
+        });
+
+        audio.addEventListener('error', (e) => {
+            console.error('[AUDIO] Audio error:', e);
+            msg('System', 'Audio playback error');
+        });
+    } catch (err) {
+        console.error('[AUDIO] Error creating audio element:', err);
+        msg('System', 'Failed to create audio player');
+    }
+}
+
 
 // ----------------- Elements -----------------
 const elStatus = document.getElementById('status');
@@ -573,6 +603,15 @@ function createSignaling() {
 
         onServerMessage: (event, payload) => {
             // NOTE: room_joined is handled by onRoomJoined now (avoid double handling)
+
+            if (event === 'play_audio') {
+                const audioUrl = payload?.audioUrl;
+                if (audioUrl) {
+                    playAudioFromUrl(audioUrl);
+                    msg('System', 'Playing audio from server');
+                }
+                return;
+            }
 
             if (event === 'peer_left') {
                 const id = (payload?.xrId || '').toUpperCase();

@@ -3920,14 +3920,36 @@
         <div style="
           flex:0 0 auto;
           padding:12px 14px;
-          text-align:center;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          gap:12px;
           font-size:18px;
           font-weight:800;
           color:#FFFFFF;
           background:transparent;
           border-bottom:none;
         ">
-          ${escapeHtmlEhr(title || 'AI Summary Note')}
+          <span>${escapeHtmlEhr(title || 'AI Summary Note')}</span>
+          <button id="summarySpeakerBtn" class="speaker-btn" title="Play summary on device" style="
+            background:#4f46e5;
+            color:white;
+            border:none;
+            border-radius:6px;
+            padding:8px 12px;
+            cursor:pointer;
+            font-size:14px;
+            display:flex;
+            align-items:center;
+            gap:6px;
+            transition:background 0.2s;
+          ">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            </svg>
+            Play
+          </button>
         </div>
 
         <div style="
@@ -3952,6 +3974,103 @@
         </div>
       </div>
     `;
+
+    // Attach event listener to the speaker button
+    setTimeout(() => {
+      const speakerBtn = document.getElementById('summarySpeakerBtn');
+      if (speakerBtn) {
+        speakerBtn.addEventListener('click', () => handleSummarySpeaker(raw));
+        speakerBtn.addEventListener('mouseenter', function() {
+          this.style.background = '#4338ca';
+        });
+        speakerBtn.addEventListener('mouseleave', function() {
+          this.style.background = '#4f46e5';
+        });
+      }
+    }, 0);
+  }
+
+  async function handleSummarySpeaker(summaryText) {
+    try {
+      if (!summaryText || !summaryText.trim()) {
+        await Swal.fire({
+          icon: 'error',
+          title: 'No Content',
+          text: 'Summary is empty. Nothing to play.',
+          background: '#1f2937',
+          color: '#ffffff'
+        });
+        return;
+      }
+
+      // Get the device ID (first connected device)
+      const deviceListResponse = await fetch(`${state.SERVER_URL}/socket-io/device-list`);
+      const deviceListData = await deviceListResponse.json();
+
+      if (!deviceListData.devices || deviceListData.devices.length === 0) {
+        await Swal.fire({
+          icon: 'error',
+          title: 'No Device Connected',
+          text: 'No device is currently connected. Please ensure a device is connected to play audio.',
+          background: '#1f2937',
+          color: '#ffffff'
+        });
+        return;
+      }
+
+      const deviceId = deviceListData.devices[0].xrId;
+
+      // Show loading
+      Swal.fire({
+        title: 'Converting to Speech...',
+        text: 'Please wait while we generate audio',
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        background: '#1f2937',
+        color: '#ffffff',
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+
+      // Call TTS endpoint
+      const response = await fetch(`${state.SERVER_URL}/api/tts/convert`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: summaryText,
+          deviceId: deviceId
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to convert text to speech');
+      }
+
+      await Swal.fire({
+        icon: 'success',
+        title: 'Audio Sent',
+        text: 'Summary is now playing on the device',
+        background: '#1f2937',
+        color: '#ffffff',
+        timer: 2000,
+        showConfirmButton: false
+      });
+
+    } catch (error) {
+      console.error('[TTS] Error:', error);
+      await Swal.fire({
+        icon: 'error',
+        title: 'Conversion Failed',
+        text: error.message || 'Failed to convert text to speech',
+        background: '#1f2937',
+        color: '#ffffff'
+      });
+    }
   }
 
   async function loadSummary() {
