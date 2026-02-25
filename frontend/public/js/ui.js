@@ -293,20 +293,18 @@ function toggleAudioPlayback() {
         return;
     }
 
-    const btnAudio = document.getElementById('btnAudio');
-
     // Check the actual audio state instead of our tracking variable
     // This prevents race conditions during initialization
     if (!currentAudio.paused) {
         // Audio is currently playing, so pause it
         currentAudio.pause();
-        if (btnAudio) btnAudio.textContent = 'Play';
-        console.log('⏸️ [AUDIO] Paused');
+        // Button will be updated by onpause event handler
+        console.log('⏸️ [AUDIO] Pausing...');
     } else {
         // Audio is paused, so play it
         currentAudio.play().then(() => {
-            if (btnAudio) btnAudio.textContent = 'Pause';
-            console.log('▶️ [AUDIO] Resumed');
+            // Button will be updated by onplay event handler
+            console.log('▶️ [AUDIO] Resuming...');
         }).catch(err => {
             console.error('[AUDIO] Play error:', err);
             msg('System', '⚠️ Failed to play audio: ' + err.message);
@@ -691,14 +689,17 @@ function createSignaling() {
 
                 currentAudio = new Audio(currentAudioUrl);
 
-                // Update button to Play/Pause state
+                // Update button to Pause state (audio will autoplay)
                 const btnAudio = document.getElementById('btnAudio');
+                console.log('🔘 [VISION DEVICE] Button before update:', btnAudio ? btnAudio.textContent : 'NULL');
                 if (btnAudio) {
                     btnAudio.disabled = false;
                     btnAudio.style.opacity = '1';
                     btnAudio.style.cursor = 'pointer';
                     btnAudio.textContent = 'Pause';
-                    console.log('✅ [VISION DEVICE] Audio button set to Pause');
+                    console.log('✅ [VISION DEVICE] Audio button updated to:', btnAudio.textContent);
+                } else {
+                    console.error('❌ [VISION DEVICE] btnAudio element not found!');
                 }
 
                 // Set up event handlers BEFORE playing to avoid race conditions
@@ -725,6 +726,12 @@ function createSignaling() {
                         clearTimeout(audioTimeoutId);
                         audioTimeoutId = null;
                     }
+                    // Update button to reflect playing state
+                    const btn = document.getElementById('btnAudio');
+                    if (btn) {
+                        btn.textContent = 'Pause';
+                        console.log('✅ [VISION DEVICE] onplay: Button set to Pause');
+                    }
                 };
 
                 currentAudio.onpause = () => {
@@ -734,6 +741,12 @@ function createSignaling() {
                         isAudioPaused = true;
                         isAudioPlaying = false;
                         startAudioTimeout();
+                        // Update button to reflect paused state
+                        const btn = document.getElementById('btnAudio');
+                        if (btn) {
+                            btn.textContent = 'Play';
+                            console.log('✅ [VISION DEVICE] onpause: Button set to Play');
+                        }
                     }
                 };
 
@@ -746,8 +759,13 @@ function createSignaling() {
                     console.error('❌ [VISION DEVICE] Playback error:', err);
                     msg('System', '⚠️ Failed to play audio: ' + err.message);
                     isAudioPlaying = false;
-                    if (btnAudio) {
-                        btnAudio.textContent = 'Play';
+                    const btn = document.getElementById('btnAudio');
+                    if (btn) {
+                        btn.textContent = 'Play';
+                        btn.disabled = false;
+                        btn.style.opacity = '1';
+                        btn.style.cursor = 'pointer';
+                        console.log('❌ [VISION DEVICE] Play failed - button set to Play');
                     }
                 });
             } catch (err) {
