@@ -443,11 +443,14 @@ function createSignaling() {
         xrId: ANDROID_XR_ID
     });
 
+    console.log('[VISION DEVICE] SignalingClient created - audio handler will be attached');
+
     signaling.listener = {
         onConnected: () => {
             isServerConnected = true;
             setStatus(true);
             msg('System', 'Connected to server');
+            console.log('[VISION DEVICE] Connected - onPlayAudio handler registered:', !!signaling.listener?.onPlayAudio);
 
             // start 12s telemetry
             telemetry = new TelemetryReporter({
@@ -550,7 +553,7 @@ function createSignaling() {
         },
 
         onPlayAudio: (payload) => {
-            console.log('[AUDIO] onPlayAudio called!', {
+            console.log('✅ [VISION DEVICE] AUDIO RECEIVED', {
                 hasAudio: !!payload?.audio,
                 audioLength: payload?.audio?.length,
                 contentType: payload?.contentType,
@@ -562,12 +565,22 @@ function createSignaling() {
                 const contentType = payload?.contentType || 'audio/mpeg';
 
                 if (!audioBase64) {
-                    console.warn('[AUDIO] No audio data received');
+                    console.error('❌ [VISION DEVICE] NOT RECEIVED - No audio data in payload');
                     msg('System', '⚠️ No audio data');
                     return;
                 }
 
-                console.log('[AUDIO] Decoding base64 audio, length:', audioBase64.length);
+                console.log('✅ [VISION DEVICE] RECEIVED - Decoding base64 audio, length:', audioBase64.length);
+
+                // Enable the audio button now that we've received audio
+                const btnAudio = document.getElementById('btnAudio');
+                if (btnAudio) {
+                    btnAudio.disabled = false;
+                    btnAudio.style.opacity = '1';
+                    btnAudio.style.cursor = 'pointer';
+                    console.log('✅ [VISION DEVICE] Audio button ENABLED');
+                }
+
                 const audioData = atob(audioBase64);
                 const arrayBuffer = new ArrayBuffer(audioData.length);
                 const uint8Array = new Uint8Array(arrayBuffer);
@@ -579,22 +592,22 @@ function createSignaling() {
                 const blob = new Blob([uint8Array], { type: contentType });
                 const audioUrl = URL.createObjectURL(blob);
 
-                console.log('[AUDIO] Created blob URL:', audioUrl, 'size:', blob.size);
+                console.log('✅ [VISION DEVICE] Created blob URL:', audioUrl, 'size:', blob.size);
 
                 const audio = new Audio(audioUrl);
 
-                console.log('[AUDIO] Attempting to play audio...');
+                console.log('✅ [VISION DEVICE] Attempting to play audio...');
                 audio.play().then(() => {
                     msg('System', '🔊 Playing summary audio');
-                    console.log('[AUDIO] Playing audio on device - SUCCESS');
+                    console.log('✅ [VISION DEVICE] Playing audio - SUCCESS');
                 }).catch(err => {
-                    console.error('[AUDIO] Playback error:', err);
+                    console.error('❌ [VISION DEVICE] Playback error:', err);
                     msg('System', '⚠️ Failed to play audio: ' + err.message);
                 });
 
                 audio.onended = () => {
                     URL.revokeObjectURL(audioUrl);
-                    console.log('[AUDIO] Playback finished');
+                    console.log('✅ [VISION DEVICE] Playback finished');
                 };
             } catch (err) {
                 console.error('[AUDIO] Error processing audio:', err);
