@@ -4011,7 +4011,15 @@
   }
 
   async function playSummaryAudio(text) {
-    if (!text || !text.trim()) {
+    let textToSend = text;
+
+    if (typeof text === 'object' && text !== null) {
+      textToSend = text.text || text.content || JSON.stringify(text);
+    }
+
+    textToSend = String(textToSend || '').trim();
+
+    if (!textToSend) {
       if (typeof Swal !== 'undefined') {
         Swal.fire({ icon: 'error', title: 'No Content', text: 'No summary text available to play.' });
       } else {
@@ -4037,7 +4045,7 @@
       const res = await fetch(`${state.SERVER_URL}/ehr/ai/text-to-speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim() })
+        body: JSON.stringify({ text: textToSend })
       });
 
       const data = await res.json();
