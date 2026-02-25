@@ -131,6 +131,7 @@
     deviceListPollTimer: null,
     pendingEmptyDeviceListTimer: null,
     lastRenderedDeviceKey: '',
+    connectedDevices: [], // current connected devices
 
     // medication availability
     medAvailability: new Map(),
@@ -2845,6 +2846,7 @@
     }
 
     if (devices.length === 0) {
+      state.connectedDevices = [];
       state.pendingEmptyDeviceListTimer = setTimeout(() => {
         state.lastRenderedDeviceKey = '';
         showNoDevices();
@@ -2854,6 +2856,7 @@
       return;
     }
 
+    state.connectedDevices = devices;
     state.lastRenderedDeviceKey = nextKey;
     dom.deviceList.innerHTML = '';
 
@@ -4003,11 +4006,8 @@
         return;
       }
 
-      // Get the device ID (first connected device)
-      const deviceListResponse = await fetch(`${state.SERVER_URL}/socket-io/device-list`);
-      const deviceListData = await deviceListResponse.json();
-
-      if (!deviceListData.devices || deviceListData.devices.length === 0) {
+      // Get the device ID from state (first connected device)
+      if (!state.connectedDevices || state.connectedDevices.length === 0) {
         await Swal.fire({
           icon: 'error',
           title: 'No Device Connected',
@@ -4018,7 +4018,7 @@
         return;
       }
 
-      const deviceId = deviceListData.devices[0].xrId;
+      const deviceId = state.connectedDevices[0].xrId;
 
       // Show loading
       Swal.fire({
