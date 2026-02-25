@@ -4006,7 +4006,7 @@
     if (testBtn) {
       testBtn.onmouseover = () => testBtn.style.background = '#059669';
       testBtn.onmouseout = () => testBtn.style.background = '#10b981';
-      testBtn.onclick = () => playSummaryAudio('This is a test audio message. Testing one two three.');
+      testBtn.onclick = () => playSummaryAudio(raw);
     }
   }
 
