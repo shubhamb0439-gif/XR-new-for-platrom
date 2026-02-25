@@ -6158,20 +6158,38 @@ io.on('connection', (socket) => {
         for (const socketId of roomSockets) {
           const sock = io.sockets.sockets.get(socketId);
           if (sock) {
-            console.log(`  - Socket ${socketId}: xrId=${sock.data?.xrId}, deviceName=${sock.data?.deviceName}, roomId=${sock.data?.roomId}`);
+            console.log(`  - Socket ${socketId}: xrId=${sock.data?.xrId}, deviceName=${sock.data?.deviceName}, roomId=${sock.data?.roomId}, clientType=${sock.data?.clientType}`);
           }
         }
       } else {
         console.warn('[play_audio_on_device] ⚠️ WARNING: Room is EMPTY! No devices will receive the audio.');
       }
 
+      // Emit to room
       io.to(targetRoom).emit('play_audio', {
         audio,
         contentType: contentType || 'audio/mpeg',
         timestamp: Date.now()
       });
 
-      console.log('[play_audio_on_device] ✅ Emitted play_audio event to', memberCount, 'member(s)');
+      console.log('[play_audio_on_device] ✅ Emitted play_audio event to room');
+
+      // ALSO emit directly to each device socket (bypass room)
+      if (roomSockets && roomSockets.size > 0) {
+        for (const socketId of roomSockets) {
+          const sock = io.sockets.sockets.get(socketId);
+          if (sock && sock.data?.clientType !== 'cockpit') {
+            console.log(`[play_audio_on_device] 🎯 DIRECT emit to device socket ${socketId} (xrId=${sock.data?.xrId})`);
+            sock.emit('play_audio', {
+              audio,
+              contentType: contentType || 'audio/mpeg',
+              timestamp: Date.now()
+            });
+          }
+        }
+      }
+
+      console.log('[play_audio_on_device] ✅ Completed audio broadcast');
     } catch (e) {
       console.error('[play_audio_on_device] Error:', e?.message || e);
     }

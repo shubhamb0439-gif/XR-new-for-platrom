@@ -107,8 +107,12 @@ export class SignalingClient {
     this.socket.on('control', this._onControl);
 
     // Audio playback
-    console.log('[SIGNALING] Registering play_audio listener');
+    console.log('[SIGNALING] 🎧 Registering play_audio listener on socket', this.socket?.id);
     this.socket.on('play_audio', this._onPlayAudio.bind(this));
+
+    // Verify listener was registered
+    console.log('[SIGNALING] ✅ play_audio listener registered, socket.listeners count:',
+      this.socket?.listeners('play_audio')?.length || 0);
   }
 
 
@@ -245,6 +249,9 @@ export class SignalingClient {
     // Clear any stale queued emits from previous sessions.
     // Fresh session must start with clean outbox.
     this._outbox.length = 0;
+
+    console.log('[SIGNALING] 🔌 Socket connected, ID:', this.socket?.id);
+    console.log('[SIGNALING] 📋 play_audio listeners registered:', this.socket?.listeners('play_audio')?.length || 0);
 
     // ✅ Option B strict: identify only (no legacy join)
     this.socket.emit('identify', { deviceName: this.deviceName, xrId: this.xrId });
