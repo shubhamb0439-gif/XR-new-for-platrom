@@ -4011,13 +4011,18 @@
   }
 
   async function playSummaryAudio(text) {
+    console.log('[playSummaryAudio] Received input type:', typeof text);
+    console.log('[playSummaryAudio] Received input:', text);
+
     let textToSend = text;
 
     if (typeof text === 'object' && text !== null) {
+      console.log('[playSummaryAudio] Input is object, extracting text property');
       textToSend = text.text || text.content || JSON.stringify(text);
     }
 
     textToSend = String(textToSend || '').trim();
+    console.log('[playSummaryAudio] Final text to send:', textToSend.substring(0, 100) + '...');
 
     if (!textToSend) {
       if (typeof Swal !== 'undefined') {
