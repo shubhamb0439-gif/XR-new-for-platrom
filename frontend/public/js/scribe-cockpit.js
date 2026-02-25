@@ -4011,7 +4011,11 @@
   }
 
   async function playSummaryAudio(text) {
+    console.log('🔵 [PLAY_SUMMARY] Called with text length:', text?.length || 0);
+    console.log('🔵 [PLAY_SUMMARY] Text preview:', text?.substring(0, 100));
+
     if (!text || !text.trim()) {
+      console.log('🔴 [PLAY_SUMMARY] No text provided!');
       if (typeof Swal !== 'undefined') {
         Swal.fire({ icon: 'error', title: 'No Content', text: 'No summary text available to play.' });
       } else {
@@ -4034,19 +4038,25 @@
     }
 
     try {
+      console.log('🔵 [PLAY_SUMMARY] Fetching TTS from:', `${state.SERVER_URL}/ehr/ai/text-to-speech`);
       const res = await fetch(`${state.SERVER_URL}/ehr/ai/text-to-speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text.trim() })
       });
 
+      console.log('🔵 [PLAY_SUMMARY] TTS response status:', res.status);
       const data = await res.json();
+      console.log('🔵 [PLAY_SUMMARY] TTS response data keys:', Object.keys(data));
+      console.log('🔵 [PLAY_SUMMARY] Audio length:', data.audio?.length);
+
       if (!res.ok) throw new Error(data?.error || 'Failed to generate audio');
 
       if (state.socket && state.socket.connected) {
         console.log('[TTS] 🎵 Emitting play_audio_on_device to room:', state.currentRoom, 'audio size:', data.audio?.length);
         console.log('[TTS] 🎵 Socket ID:', state.socket.id, 'Connected:', state.socket.connected);
         console.log('[TTS] 🎵 Room members count:', state.roomMembers?.length || 0);
+        console.log('🔵 [PLAY_SUMMARY] About to emit play_audio_on_device...');
 
         state.socket.emit('play_audio_on_device', {
           audio: data.audio,
@@ -4054,16 +4064,20 @@
           room: state.currentRoom
         });
 
-        console.log('[TTS] ✅ Event emitted successfully');
+        console.log('🔵 [PLAY_SUMMARY] ✅ Event emitted successfully');
 
         if (typeof Swal !== 'undefined') {
           Swal.fire({ icon: 'success', title: 'Audio Sent', text: 'Audio is now playing on the device.', timer: 2000 });
         }
       } else {
+        console.log('🔴 [PLAY_SUMMARY] Socket not connected!', {
+          hasSocket: !!state.socket,
+          isConnected: state.socket?.connected
+        });
         throw new Error('Not connected to server');
       }
     } catch (err) {
-      console.error('[TTS] Error:', err);
+      console.error('🔴 [PLAY_SUMMARY] Error:', err);
       if (typeof Swal !== 'undefined') {
         Swal.fire({ icon: 'error', title: 'Audio Error', text: err.message || 'Failed to generate or play audio.' });
       } else {
