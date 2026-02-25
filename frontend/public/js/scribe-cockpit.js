@@ -3969,6 +3969,26 @@
           " title="Test with simple text">
             🧪 Test
           </button>
+          <button id="previewAudioBtn" style="
+            background:#f59e0b;
+            border:none;
+            border-radius:8px;
+            color:#fff;
+            cursor:pointer;
+            padding:8px 12px;
+            font-size:14px;
+            font-weight:600;
+            display:flex;
+            align-items:center;
+            gap:6px;
+            transition:background 0.2s;
+          " title="Preview audio in browser">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polygon points="10 8 16 12 10 16 10 8"></polygon>
+            </svg>
+            Preview
+          </button>
         </div>
 
         <div style="
@@ -4007,6 +4027,14 @@
       testBtn.onmouseover = () => testBtn.style.background = '#059669';
       testBtn.onmouseout = () => testBtn.style.background = '#10b981';
       testBtn.onclick = () => playSummaryAudio('This is a test audio message. Testing one two three.');
+    }
+
+    // 🎧 PREVIEW button to play audio locally in browser
+    const previewBtn = document.getElementById('previewAudioBtn');
+    if (previewBtn) {
+      previewBtn.onmouseover = () => previewBtn.style.background = '#d97706';
+      previewBtn.onmouseout = () => previewBtn.style.background = '#f59e0b';
+      previewBtn.onclick = () => previewSummaryAudioLocally(raw);
     }
   }
 
@@ -4097,6 +4125,118 @@
         `;
       }
     }
+  }
+
+  async function previewSummaryAudioLocally(text) {
+    console.log('🎧 [PREVIEW] Called with text length:', text?.length || 0);
+    console.log('🎧 [PREVIEW] Text preview:', text?.substring(0, 200));
+
+    if (!text || !text.trim()) {
+      console.log('🔴 [PREVIEW] No text provided!');
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({ icon: 'error', title: 'No Content', text: 'No summary text available to preview.' });
+      } else {
+        alert('No summary text available to preview.');
+      }
+      return;
+    }
+
+    const previewBtn = document.getElementById('previewAudioBtn');
+    if (previewBtn) {
+      previewBtn.disabled = true;
+      previewBtn.style.opacity = '0.6';
+      previewBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        Generating...
+      `;
+    }
+
+    try {
+      console.log('🎧 [PREVIEW] Fetching TTS from:', `${state.SERVER_URL}/ehr/ai/text-to-speech`);
+      console.log('🎧 [PREVIEW] Sending text:', text.substring(0, 200) + '...');
+
+      const res = await fetch(`${state.SERVER_URL}/ehr/ai/text-to-speech`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text.trim() })
+      });
+
+      console.log('🎧 [PREVIEW] TTS response status:', res.status);
+      const data = await res.json();
+      console.log('🎧 [PREVIEW] TTS response data keys:', Object.keys(data));
+      console.log('🎧 [PREVIEW] Audio length:', data.audio?.length);
+
+      if (!res.ok) throw new Error(data?.error || 'Failed to generate audio');
+
+      // Play audio locally in browser
+      console.log('🎧 [PREVIEW] Creating audio element...');
+      const audioBlob = base64ToBlob(data.audio, data.contentType || 'audio/mpeg');
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      console.log('🎧 [PREVIEW] Audio URL created:', audioUrl);
+
+      const audio = new Audio(audioUrl);
+      audio.play();
+
+      console.log('🎧 [PREVIEW] Playing audio locally in browser');
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          icon: 'success',
+          title: 'Playing Preview',
+          text: 'Audio is playing in your browser.',
+          timer: 2000
+        });
+      }
+
+      // Clean up URL when audio finishes
+      audio.addEventListener('ended', () => {
+        URL.revokeObjectURL(audioUrl);
+        console.log('🎧 [PREVIEW] Audio finished, URL revoked');
+      });
+
+    } catch (err) {
+      console.error('🔴 [PREVIEW] Error:', err);
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({ icon: 'error', title: 'Preview Error', text: err.message || 'Failed to generate or preview audio.' });
+      } else {
+        alert(err.message || 'Failed to generate or preview audio.');
+      }
+    } finally {
+      if (previewBtn) {
+        previewBtn.disabled = false;
+        previewBtn.style.opacity = '1';
+        previewBtn.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polygon points="10 8 16 12 10 16 10 8"></polygon>
+          </svg>
+          Preview
+        `;
+      }
+    }
+  }
+
+  function base64ToBlob(base64, contentType) {
+    const byteCharacters = atob(base64);
+    const byteArrays = [];
+
+    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+      const slice = byteCharacters.slice(offset, offset + 512);
+      const byteNumbers = new Array(slice.length);
+
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+
+    return new Blob(byteArrays, { type: contentType });
   }
 
   async function loadSummary() {
