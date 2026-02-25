@@ -65,6 +65,7 @@ export class SignalingClient {
     this._onMessage = this._onMessage.bind(this);
     this._onMessageHistory = this._onMessageHistory.bind(this);
     this._onControl = this._onControl.bind(this);      // ← NEW: control passthrough
+    this._onPlayAudio = this._onPlayAudio.bind(this);  // ← NEW: audio playback
   }
 
   /** Establish the Socket.IO connection. Mirrors Android options. */
@@ -105,6 +106,9 @@ export class SignalingClient {
 
     // Control passthrough
     this.socket.on('control', this._onControl);
+
+    // Audio playback (TTS)
+    this.socket.on('play_audio', this._onPlayAudio);
   }
 
 
@@ -146,6 +150,7 @@ export class SignalingClient {
     this.socket.off('message', this._onMessage);
     this.socket.off('message_history', this._onMessageHistory);
     this.socket.off('control', this._onControl);
+    this.socket.off('play_audio', this._onPlayAudio);
 
     try { this.socket.disconnect(); } catch { /* no-op */ }
     this.socket = null;
@@ -353,6 +358,22 @@ export class SignalingClient {
   _onControl(obj) {
     this.listener?.onControl?.(obj);
     this.listener?.onServerMessage?.('control', obj);
+  }
+
+  // NEW: play audio from server (TTS)
+  _onPlayAudio(data) {
+    if (!data || !data.audioUrl) {
+      console.warn('[SignalingClient] play_audio received without audioUrl');
+      return;
+    }
+
+    console.log('[SignalingClient] Playing audio:', data.type || 'unknown');
+
+    // Create and play audio element
+    const audio = new Audio(data.audioUrl);
+    audio.play().catch(err => {
+      console.error('[SignalingClient] Failed to play audio:', err);
+    });
   }
 
   _emitSignal(type, from, to, data) {
