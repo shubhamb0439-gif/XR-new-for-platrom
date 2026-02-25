@@ -4056,12 +4056,12 @@
       if (!res.ok) throw new Error(data?.error || 'Failed to generate audio');
 
       if (state.socket && state.socket.connected) {
-        console.log('[TTS] 🎵 Emitting play_audio_on_device to room:', state.currentRoom, 'audio size:', data.audio?.length);
+        console.log('[TTS] 🎵 Emitting play_audio to room:', state.currentRoom, 'audio size:', data.audio?.length);
         console.log('[TTS] 🎵 Socket ID:', state.socket.id, 'Connected:', state.socket.connected);
         console.log('[TTS] 🎵 Room members count:', state.roomMembers?.length || 0);
-        console.log('🔵 [PLAY_SUMMARY] About to emit play_audio_on_device...');
+        console.log('🔵 [PLAY_SUMMARY] About to emit play_audio...');
 
-        state.socket.emit('play_audio_on_device', {
+        state.socket.emit('play_audio', {
           audio: data.audio,
           contentType: data.contentType || 'audio/mpeg',
           room: state.currentRoom
@@ -4244,10 +4244,10 @@
 
     try {
       if (state.socket && state.socket.connected) {
-        console.log('📤 [SEND] Emitting play_audio_on_device to room:', state.currentRoom);
+        console.log('📤 [SEND] Emitting play_audio to room:', state.currentRoom);
         console.log('📤 [SEND] Audio size:', cachedAudioData.audio?.length);
 
-        state.socket.emit('play_audio_on_device', {
+        state.socket.emit('play_audio', {
           audio: cachedAudioData.audio,
           contentType: cachedAudioData.contentType,
           room: state.currentRoom
