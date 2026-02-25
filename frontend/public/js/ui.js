@@ -454,8 +454,19 @@ function createSignaling() {
             console.log('[VISION DEVICE] ✅ onPlayAudio handler registered:', !!signaling.listener?.onPlayAudio);
             console.log('[VISION DEVICE] ✅ Socket play_audio listeners:', signaling?.socket?.listeners('play_audio')?.length || 0);
 
-            // TEST: Send a test message to confirm socket is working
+            // 🧪 DIRECT TEST: Register a SECOND listener directly on the socket to confirm events are arriving
             if (signaling?.socket) {
+                console.log('[VISION DEVICE] 🧪 Registering DIRECT play_audio listener on raw socket...');
+                signaling.socket.on('play_audio', (payload) => {
+                    console.log('🎺🎺🎺 [DIRECT LISTENER] AUDIO EVENT RECEIVED ON RAW SOCKET!', {
+                        hasPayload: !!payload,
+                        hasAudio: !!payload?.audio,
+                        audioLength: payload?.audio?.length,
+                        timestamp: new Date().toISOString()
+                    });
+                });
+
+                // TEST: Send a test message to confirm socket is working
                 console.log('[VISION DEVICE] 🧪 Testing socket emit capability...');
                 signaling.socket.emit('test_ping', { from: ANDROID_XR_ID, ts: Date.now() });
             }

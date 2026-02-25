@@ -3953,6 +3953,22 @@
             </svg>
             Play
           </button>
+          <button id="testSimpleAudioBtn" style="
+            background:#10b981;
+            border:none;
+            border-radius:8px;
+            color:#fff;
+            cursor:pointer;
+            padding:8px 12px;
+            font-size:14px;
+            font-weight:600;
+            display:flex;
+            align-items:center;
+            gap:6px;
+            transition:background 0.2s;
+          " title="Test with simple text">
+            🧪 Test
+          </button>
         </div>
 
         <div style="
@@ -3983,6 +3999,14 @@
       speakerBtn.onmouseover = () => speakerBtn.style.background = '#4f46e5';
       speakerBtn.onmouseout = () => speakerBtn.style.background = '#6366f1';
       speakerBtn.onclick = () => playSummaryAudio(raw);
+    }
+
+    // 🧪 TEST button for quick audio testing
+    const testBtn = document.getElementById('testSimpleAudioBtn');
+    if (testBtn) {
+      testBtn.onmouseover = () => testBtn.style.background = '#059669';
+      testBtn.onmouseout = () => testBtn.style.background = '#10b981';
+      testBtn.onclick = () => playSummaryAudio('This is a test audio message. Testing one two three.');
     }
   }
 
@@ -4020,7 +4044,9 @@
       if (!res.ok) throw new Error(data?.error || 'Failed to generate audio');
 
       if (state.socket && state.socket.connected) {
-        console.log('[TTS] Emitting play_audio_on_device to room:', state.currentRoom, 'audio size:', data.audio?.length);
+        console.log('[TTS] 🎵 Emitting play_audio_on_device to room:', state.currentRoom, 'audio size:', data.audio?.length);
+        console.log('[TTS] 🎵 Socket ID:', state.socket.id, 'Connected:', state.socket.connected);
+        console.log('[TTS] 🎵 Room members count:', state.roomMembers?.length || 0);
 
         state.socket.emit('play_audio_on_device', {
           audio: data.audio,
@@ -4028,7 +4054,7 @@
           room: state.currentRoom
         });
 
-        console.log('[TTS] Event emitted successfully');
+        console.log('[TTS] ✅ Event emitted successfully');
 
         if (typeof Swal !== 'undefined') {
           Swal.fire({ icon: 'success', title: 'Audio Sent', text: 'Audio is now playing on the device.', timer: 2000 });

@@ -6156,15 +6156,34 @@ io.on('connection', (socket) => {
       // Log each member's details
       if (roomSockets && roomSockets.size > 0) {
         console.log('[play_audio_on_device] Room member details:');
+        let deviceCount = 0;
+        let cockpitCount = 0;
+
         for (const socketId of roomSockets) {
           const sock = io.sockets.sockets.get(socketId);
           if (sock) {
-            console.log(`  - Socket ${socketId}: xrId=${sock.data?.xrId}, deviceName=${sock.data?.deviceName}, roomId=${sock.data?.roomId}, clientType=${sock.data?.clientType}`);
+            const cType = sock.data?.clientType || 'unknown';
+            if (cType === 'device') deviceCount++;
+            if (cType === 'cockpit') cockpitCount++;
 
-            // Check if this socket has play_audio listeners
-            const listeners = sock.listeners('play_audio');
-            console.log(`    Listeners for 'play_audio':`, listeners.length);
+            console.log(`  - Socket ${socketId}:`, {
+              xrId: sock.data?.xrId,
+              deviceName: sock.data?.deviceName,
+              roomId: sock.data?.roomId,
+              clientType: cType,
+              playAudioListeners: sock.listeners('play_audio').length
+            });
           }
+        }
+
+        console.log('[play_audio_on_device] Summary:', {
+          totalMembers: roomSockets.size,
+          devices: deviceCount,
+          cockpits: cockpitCount
+        });
+
+        if (deviceCount === 0) {
+          console.warn('[play_audio_on_device] ⚠️ WARNING: No DEVICE sockets in room! Only cockpits present.');
         }
       } else {
         console.warn('[play_audio_on_device] ⚠️ WARNING: Room is EMPTY! No devices will receive the audio.');
