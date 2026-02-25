@@ -714,18 +714,11 @@ function createSignaling() {
                     notifyCockpitPlaybackComplete();
                 };
 
-                currentAudio.onpause = () => {
-                    // Only handle pause if audio has started playing and hasn't ended
-                    if (isAudioPlaying && !currentAudio.ended) {
-                        console.log('⏸️ [VISION DEVICE] Audio paused by user');
-                        isAudioPaused = true;
-                        isAudioPlaying = false;
-                        startAudioTimeout();
-                    }
-                };
+                let hasStartedPlaying = false;
 
                 currentAudio.onplay = () => {
                     console.log('▶️ [VISION DEVICE] Audio playing');
+                    hasStartedPlaying = true;
                     isAudioPlaying = true;
                     isAudioPaused = false;
                     if (audioTimeoutId) {
@@ -734,9 +727,17 @@ function createSignaling() {
                     }
                 };
 
+                currentAudio.onpause = () => {
+                    // Only handle pause if audio has actually started playing and hasn't ended
+                    if (hasStartedPlaying && !currentAudio.ended) {
+                        console.log('⏸️ [VISION DEVICE] Audio paused by user');
+                        isAudioPaused = true;
+                        isAudioPlaying = false;
+                        startAudioTimeout();
+                    }
+                };
+
                 console.log('✅ [VISION DEVICE] Attempting to auto-play audio...');
-                isAudioPlaying = true;
-                isAudioPaused = false;
 
                 currentAudio.play().then(() => {
                     msg('System', '🔊 Playing summary audio');
