@@ -3245,6 +3245,23 @@
         resolve();
       });
 
+      state.socket.on('audio_playback_complete', (data) => {
+        console.log('[SCRIBE] Audio playback complete notification received:', data);
+        const speakerBtn = document.getElementById('speakerBtn');
+        if (speakerBtn) {
+          speakerBtn.disabled = false;
+          speakerBtn.style.opacity = '1';
+          speakerBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+            </svg>
+            Play
+          `;
+        }
+      });
+
       state.socket.on('disconnect', () => {
         const prevRoom = state.currentRoom;
         state.currentRoom = null;
@@ -3953,22 +3970,6 @@
             </svg>
             Play
           </button>
-          <button id="testSimpleAudioBtn" style="
-            background:#10b981;
-            border:none;
-            border-radius:8px;
-            color:#fff;
-            cursor:pointer;
-            padding:8px 12px;
-            font-size:14px;
-            font-weight:600;
-            display:flex;
-            align-items:center;
-            gap:6px;
-            transition:background 0.2s;
-          " title="Test with simple text">
-            🧪 Test
-          </button>
         </div>
 
         <div style="
@@ -3999,14 +4000,6 @@
       speakerBtn.onmouseover = () => speakerBtn.style.background = '#4f46e5';
       speakerBtn.onmouseout = () => speakerBtn.style.background = '#6366f1';
       speakerBtn.onclick = () => playSummaryAudio(raw);
-    }
-
-    // 🧪 TEST button for quick audio testing
-    const testBtn = document.getElementById('testSimpleAudioBtn');
-    if (testBtn) {
-      testBtn.onmouseover = () => testBtn.style.background = '#059669';
-      testBtn.onmouseout = () => testBtn.style.background = '#10b981';
-      testBtn.onclick = () => playSummaryAudio('This is a test audio message. Testing one two three.');
     }
   }
 
@@ -4061,6 +4054,18 @@
         console.log('[TTS] 🎵 Socket ID:', state.socket.id, 'Connected:', state.socket.connected);
         console.log('[TTS] 🎵 Room members count:', state.roomMembers?.length || 0);
 
+        // Update button to "Playing" state
+        if (speakerBtn) {
+          speakerBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+            </svg>
+            Playing
+          `;
+        }
+
         state.socket.emit('play_audio_on_device', {
           audio: data.audio,
           contentType: data.contentType || 'audio/mpeg',
@@ -4082,7 +4087,7 @@
       } else {
         alert(err.message || 'Failed to generate or play audio.');
       }
-    } finally {
+      // Reset button on error
       if (speakerBtn) {
         speakerBtn.disabled = false;
         speakerBtn.style.opacity = '1';

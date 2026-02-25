@@ -198,6 +198,14 @@ let videoVisible = true;
 let isListening = false;
 let lastRecognizedCommand = '';
 
+// Audio playback state
+let currentAudio = null;
+let currentAudioUrl = null;
+let isAudioPlaying = false;
+let isAudioPaused = false;
+let audioTimeoutId = null;
+const AUDIO_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
 let connectedDesktops = []; // XR IDs
 let hadDesktops = false;
 let pairedDesktopId = null; // Option B: set from room_joined members
@@ -225,6 +233,80 @@ function emitSafe(event, data) {
         }
     } catch (e) {
         console.warn('[SIGNAL][fallback emit] failed', event, e);
+    }
+}
+
+// Audio playback helper functions
+function resetAudioState() {
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+    }
+    if (currentAudioUrl) {
+        URL.revokeObjectURL(currentAudioUrl);
+        currentAudioUrl = null;
+    }
+    if (audioTimeoutId) {
+        clearTimeout(audioTimeoutId);
+        audioTimeoutId = null;
+    }
+    isAudioPlaying = false;
+    isAudioPaused = false;
+}
+
+function startAudioTimeout() {
+    if (audioTimeoutId) {
+        clearTimeout(audioTimeoutId);
+    }
+    audioTimeoutId = setTimeout(() => {
+        console.log('⏰ [AUDIO] 5-minute timeout reached, resetting audio');
+        resetAudioState();
+        const btnAudio = document.getElementById('btnAudio');
+        if (btnAudio) {
+            btnAudio.textContent = 'Play';
+            btnAudio.disabled = true;
+            btnAudio.style.opacity = '0.5';
+            btnAudio.style.cursor = 'not-allowed';
+        }
+        notifyCockpitPlaybackComplete();
+        msg('System', '⚠️ Audio timeout - please regenerate');
+    }, AUDIO_TIMEOUT_MS);
+}
+
+function notifyCockpitPlaybackComplete() {
+    try {
+        if (signaling?.socket?.connected) {
+            signaling.socket.emit('audio_playback_complete', {
+                deviceId: ANDROID_XR_ID,
+                timestamp: Date.now()
+            });
+            console.log('✅ [AUDIO] Notified cockpit of playback completion');
+        }
+    } catch (err) {
+        console.warn('[AUDIO] Failed to notify cockpit:', err);
+    }
+}
+
+function toggleAudioPlayback() {
+    if (!currentAudio) {
+        console.warn('[AUDIO] No audio loaded');
+        return;
+    }
+
+    const btnAudio = document.getElementById('btnAudio');
+
+    if (isAudioPlaying) {
+        currentAudio.pause();
+        if (btnAudio) btnAudio.textContent = 'Play';
+        console.log('⏸️ [AUDIO] Paused');
+    } else {
+        currentAudio.play().then(() => {
+            if (btnAudio) btnAudio.textContent = 'Pause';
+            console.log('▶️ [AUDIO] Resumed');
+        }).catch(err => {
+            console.error('[AUDIO] Play error:', err);
+            msg('System', '⚠️ Failed to play audio: ' + err.message);
+        });
     }
 }
 
@@ -454,23 +536,6 @@ function createSignaling() {
             console.log('[VISION DEVICE] ✅ onPlayAudio handler registered:', !!signaling.listener?.onPlayAudio);
             console.log('[VISION DEVICE] ✅ Socket play_audio listeners:', signaling?.socket?.listeners('play_audio')?.length || 0);
 
-            // 🧪 DIRECT TEST: Register a SECOND listener directly on the socket to confirm events are arriving
-            if (signaling?.socket) {
-                console.log('[VISION DEVICE] 🧪 Registering DIRECT play_audio listener on raw socket...');
-                signaling.socket.on('play_audio', (payload) => {
-                    console.log('🎺🎺🎺 [DIRECT LISTENER] AUDIO EVENT RECEIVED ON RAW SOCKET!', {
-                        hasPayload: !!payload,
-                        hasAudio: !!payload?.audio,
-                        audioLength: payload?.audio?.length,
-                        timestamp: new Date().toISOString()
-                    });
-                });
-
-                // TEST: Send a test message to confirm socket is working
-                console.log('[VISION DEVICE] 🧪 Testing socket emit capability...');
-                signaling.socket.emit('test_ping', { from: ANDROID_XR_ID, ts: Date.now() });
-            }
-
             // start 12s telemetry
             telemetry = new TelemetryReporter({
                 xrId: ANDROID_XR_ID,
@@ -593,13 +658,18 @@ function createSignaling() {
 
                 console.log('✅ [VISION DEVICE] RECEIVED - Decoding base64 audio, length:', audioBase64.length);
 
-                // Enable the audio button now that we've received audio
-                const btnAudio = document.getElementById('btnAudio');
-                if (btnAudio) {
-                    btnAudio.disabled = false;
-                    btnAudio.style.opacity = '1';
-                    btnAudio.style.cursor = 'pointer';
-                    console.log('✅ [VISION DEVICE] Audio button ENABLED');
+                // Clean up previous audio
+                if (currentAudio) {
+                    currentAudio.pause();
+                    currentAudio = null;
+                }
+                if (currentAudioUrl) {
+                    URL.revokeObjectURL(currentAudioUrl);
+                    currentAudioUrl = null;
+                }
+                if (audioTimeoutId) {
+                    clearTimeout(audioTimeoutId);
+                    audioTimeoutId = null;
                 }
 
                 const audioData = atob(audioBase64);
@@ -611,24 +681,71 @@ function createSignaling() {
                 }
 
                 const blob = new Blob([uint8Array], { type: contentType });
-                const audioUrl = URL.createObjectURL(blob);
+                currentAudioUrl = URL.createObjectURL(blob);
 
-                console.log('✅ [VISION DEVICE] Created blob URL:', audioUrl, 'size:', blob.size);
+                console.log('✅ [VISION DEVICE] Created blob URL:', currentAudioUrl, 'size:', blob.size);
 
-                const audio = new Audio(audioUrl);
+                currentAudio = new Audio(currentAudioUrl);
 
-                console.log('✅ [VISION DEVICE] Attempting to play audio...');
-                audio.play().then(() => {
+                // Update button to Play/Pause state
+                const btnAudio = document.getElementById('btnAudio');
+                if (btnAudio) {
+                    btnAudio.disabled = false;
+                    btnAudio.style.opacity = '1';
+                    btnAudio.style.cursor = 'pointer';
+                    btnAudio.textContent = 'Pause';
+                    console.log('✅ [VISION DEVICE] Audio button set to Pause');
+                }
+
+                console.log('✅ [VISION DEVICE] Attempting to auto-play audio...');
+                isAudioPlaying = true;
+                isAudioPaused = false;
+
+                currentAudio.play().then(() => {
                     msg('System', '🔊 Playing summary audio');
                     console.log('✅ [VISION DEVICE] Playing audio - SUCCESS');
+
+                    // Start 5-minute timeout
+                    startAudioTimeout();
                 }).catch(err => {
                     console.error('❌ [VISION DEVICE] Playback error:', err);
                     msg('System', '⚠️ Failed to play audio: ' + err.message);
+                    isAudioPlaying = false;
+                    if (btnAudio) {
+                        btnAudio.textContent = 'Play';
+                    }
                 });
 
-                audio.onended = () => {
-                    URL.revokeObjectURL(audioUrl);
+                currentAudio.onended = () => {
                     console.log('✅ [VISION DEVICE] Playback finished');
+                    resetAudioState();
+                    if (btnAudio) {
+                        btnAudio.textContent = 'Play';
+                        btnAudio.disabled = true;
+                        btnAudio.style.opacity = '0.5';
+                        btnAudio.style.cursor = 'not-allowed';
+                    }
+                    // Notify cockpit that playback completed
+                    notifyCockpitPlaybackComplete();
+                };
+
+                currentAudio.onpause = () => {
+                    if (!currentAudio.ended) {
+                        isAudioPaused = true;
+                        isAudioPlaying = false;
+                        // Start 5-minute timeout when paused
+                        startAudioTimeout();
+                    }
+                };
+
+                currentAudio.onplay = () => {
+                    isAudioPlaying = true;
+                    isAudioPaused = false;
+                    // Clear timeout when playing resumes
+                    if (audioTimeoutId) {
+                        clearTimeout(audioTimeoutId);
+                        audioTimeoutId = null;
+                    }
                 };
             } catch (err) {
                 console.error('[AUDIO] Error processing audio:', err);
@@ -1201,6 +1318,14 @@ function sendControlCommand(command) {
 
 }
 
+
+// Audio button click handler
+const elBtnAudio = document.getElementById('btnAudio');
+if (elBtnAudio) {
+    elBtnAudio.addEventListener('click', () => {
+        toggleAudioPlayback();
+    });
+}
 
 elBtnSend.addEventListener('click', () => {
     if (!hasDeviceWritePermission()) {
