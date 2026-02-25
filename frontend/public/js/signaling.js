@@ -65,7 +65,6 @@ export class SignalingClient {
     this._onMessage = this._onMessage.bind(this);
     this._onMessageHistory = this._onMessageHistory.bind(this);
     this._onControl = this._onControl.bind(this);      // ← NEW: control passthrough
-    this._onPlayAudio = this._onPlayAudio.bind(this);  // ← NEW: audio playback
   }
 
   /** Establish the Socket.IO connection. Mirrors Android options. */
@@ -107,8 +106,13 @@ export class SignalingClient {
     // Control passthrough
     this.socket.on('control', this._onControl);
 
-    // Audio playback (TTS)
-    this.socket.on('play_audio', this._onPlayAudio);
+    // Audio playback
+    console.log('[SIGNALING] 🎧 Registering play_audio listener on socket', this.socket?.id);
+    this.socket.on('play_audio', this._onPlayAudio.bind(this));
+
+    // Verify listener was registered
+    console.log('[SIGNALING] ✅ play_audio listener registered, socket.listeners count:',
+      this.socket?.listeners('play_audio')?.length || 0);
   }
 
 
@@ -246,8 +250,15 @@ export class SignalingClient {
     // Fresh session must start with clean outbox.
     this._outbox.length = 0;
 
+    console.log('[SIGNALING] 🔌 Socket connected, ID:', this.socket?.id);
+    console.log('[SIGNALING] 📋 play_audio listeners registered:', this.socket?.listeners('play_audio')?.length || 0);
+
     // ✅ Option B strict: identify only (no legacy join)
-    this.socket.emit('identify', { deviceName: this.deviceName, xrId: this.xrId });
+    this.socket.emit('identify', {
+      deviceName: this.deviceName,
+      xrId: this.xrId,
+      clientType: 'device'  // 🔑 CRITICAL: Tell server this is a device, not cockpit
+    });
 
     // Optional: request self-only list while waiting (server returns self-only when unpaired)
     this.socket.emit('request_device_list');
@@ -360,20 +371,22 @@ export class SignalingClient {
     this.listener?.onServerMessage?.('control', obj);
   }
 
-  // NEW: play audio from server (TTS)
-  _onPlayAudio(data) {
-    if (!data || !data.audioUrl) {
-      console.warn('[SignalingClient] play_audio received without audioUrl');
+  _onPlayAudio(payload) {
+    console.log('[SIGNALING] ⚡ play_audio EVENT RECEIVED FROM SERVER!', {
+      hasPayload: !!payload,
+      hasAudio: !!payload?.audio,
+      audioLength: payload?.audio?.length,
+      contentType: payload?.contentType,
+      timestamp: payload?.timestamp,
+      hasListener: !!this.listener?.onPlayAudio
+    });
+
+    if (!this.listener?.onPlayAudio) {
+      console.error('[SIGNALING] ❌ No onPlayAudio handler registered in listener!');
       return;
     }
 
-    console.log('[SignalingClient] Playing audio:', data.type || 'unknown');
-
-    // Create and play audio element
-    const audio = new Audio(data.audioUrl);
-    audio.play().catch(err => {
-      console.error('[SignalingClient] Failed to play audio:', err);
-    });
+    this.listener.onPlayAudio(payload);
   }
 
   _emitSignal(type, from, to, data) {

@@ -147,36 +147,6 @@ function applyDeviceReadOnlyUI() {
     }
 }
 
-// Play audio from base64 data URL
-function playAudioFromUrl(audioUrl) {
-    if (!audioUrl) {
-        console.warn('[AUDIO] No audio URL provided');
-        return;
-    }
-
-    try {
-        const audio = new Audio(audioUrl);
-        audio.play().then(() => {
-            console.log('[AUDIO] Playing audio successfully');
-        }).catch(err => {
-            console.error('[AUDIO] Failed to play audio:', err);
-            msg('System', 'Failed to play audio');
-        });
-
-        audio.addEventListener('ended', () => {
-            console.log('[AUDIO] Audio playback completed');
-        });
-
-        audio.addEventListener('error', (e) => {
-            console.error('[AUDIO] Audio error:', e);
-            msg('System', 'Audio playback error');
-        });
-    } catch (err) {
-        console.error('[AUDIO] Error creating audio element:', err);
-        msg('System', 'Failed to create audio player');
-    }
-}
-
 
 // ----------------- Elements -----------------
 const elStatus = document.getElementById('status');
@@ -473,11 +443,33 @@ function createSignaling() {
         xrId: ANDROID_XR_ID
     });
 
+    console.log('[VISION DEVICE] SignalingClient created - audio handler will be attached');
+
     signaling.listener = {
         onConnected: () => {
             isServerConnected = true;
             setStatus(true);
             msg('System', 'Connected to server');
+            console.log('[VISION DEVICE] ✅ Connected - Socket ID:', signaling?.socket?.id);
+            console.log('[VISION DEVICE] ✅ onPlayAudio handler registered:', !!signaling.listener?.onPlayAudio);
+            console.log('[VISION DEVICE] ✅ Socket play_audio listeners:', signaling?.socket?.listeners('play_audio')?.length || 0);
+
+            // 🧪 DIRECT TEST: Register a SECOND listener directly on the socket to confirm events are arriving
+            if (signaling?.socket) {
+                console.log('[VISION DEVICE] 🧪 Registering DIRECT play_audio listener on raw socket...');
+                signaling.socket.on('play_audio', (payload) => {
+                    console.log('🎺🎺🎺 [DIRECT LISTENER] AUDIO EVENT RECEIVED ON RAW SOCKET!', {
+                        hasPayload: !!payload,
+                        hasAudio: !!payload?.audio,
+                        audioLength: payload?.audio?.length,
+                        timestamp: new Date().toISOString()
+                    });
+                });
+
+                // TEST: Send a test message to confirm socket is working
+                console.log('[VISION DEVICE] 🧪 Testing socket emit capability...');
+                signaling.socket.emit('test_ping', { from: ANDROID_XR_ID, ts: Date.now() });
+            }
 
             // start 12s telemetry
             telemetry = new TelemetryReporter({
@@ -579,6 +571,71 @@ function createSignaling() {
             if (cmd === 'unmute') { applyMute(false); return; }
         },
 
+        onPlayAudio: (payload) => {
+            console.log('🔊🔊🔊 [VISION DEVICE] ★★★ AUDIO RECEIVED ★★★ 🔊🔊🔊', {
+                hasPayload: !!payload,
+                hasAudio: !!payload?.audio,
+                audioLength: payload?.audio?.length,
+                contentType: payload?.contentType,
+                timestamp: payload?.timestamp,
+                payloadKeys: payload ? Object.keys(payload) : []
+            });
+
+            try {
+                const audioBase64 = payload?.audio;
+                const contentType = payload?.contentType || 'audio/mpeg';
+
+                if (!audioBase64) {
+                    console.error('❌ [VISION DEVICE] NOT RECEIVED - No audio data in payload');
+                    msg('System', '⚠️ No audio data');
+                    return;
+                }
+
+                console.log('✅ [VISION DEVICE] RECEIVED - Decoding base64 audio, length:', audioBase64.length);
+
+                // Enable the audio button now that we've received audio
+                const btnAudio = document.getElementById('btnAudio');
+                if (btnAudio) {
+                    btnAudio.disabled = false;
+                    btnAudio.style.opacity = '1';
+                    btnAudio.style.cursor = 'pointer';
+                    console.log('✅ [VISION DEVICE] Audio button ENABLED');
+                }
+
+                const audioData = atob(audioBase64);
+                const arrayBuffer = new ArrayBuffer(audioData.length);
+                const uint8Array = new Uint8Array(arrayBuffer);
+
+                for (let i = 0; i < audioData.length; i++) {
+                    uint8Array[i] = audioData.charCodeAt(i);
+                }
+
+                const blob = new Blob([uint8Array], { type: contentType });
+                const audioUrl = URL.createObjectURL(blob);
+
+                console.log('✅ [VISION DEVICE] Created blob URL:', audioUrl, 'size:', blob.size);
+
+                const audio = new Audio(audioUrl);
+
+                console.log('✅ [VISION DEVICE] Attempting to play audio...');
+                audio.play().then(() => {
+                    msg('System', '🔊 Playing summary audio');
+                    console.log('✅ [VISION DEVICE] Playing audio - SUCCESS');
+                }).catch(err => {
+                    console.error('❌ [VISION DEVICE] Playback error:', err);
+                    msg('System', '⚠️ Failed to play audio: ' + err.message);
+                });
+
+                audio.onended = () => {
+                    URL.revokeObjectURL(audioUrl);
+                    console.log('✅ [VISION DEVICE] Playback finished');
+                };
+            } catch (err) {
+                console.error('[AUDIO] Error processing audio:', err);
+                msg('System', '⚠️ Audio playback error: ' + err.message);
+            }
+        },
+
         onDeviceListUpdated: (listPairs) => {
             preferDesktop(listPairs);
 
@@ -603,15 +660,6 @@ function createSignaling() {
 
         onServerMessage: (event, payload) => {
             // NOTE: room_joined is handled by onRoomJoined now (avoid double handling)
-
-            if (event === 'play_audio') {
-                const audioUrl = payload?.audioUrl;
-                if (audioUrl) {
-                    playAudioFromUrl(audioUrl);
-                    msg('System', 'Playing audio from server');
-                }
-                return;
-            }
 
             if (event === 'peer_left') {
                 const id = (payload?.xrId || '').toUpperCase();

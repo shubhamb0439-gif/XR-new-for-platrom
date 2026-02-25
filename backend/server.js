@@ -885,6 +885,17 @@ async function tryDbAutoPair(deviceId, debugSocket = null) {
 
   if (debugSocket) dbgToSocket(debugSocket, "[DB_AUTO_PAIR] joined both", { roomId, meXr, partnerXr });
 
+  // ✅ Log room membership for debugging
+  const roomSockets = io.sockets.adapter.rooms.get(roomId);
+  console.log('[DB_AUTO_PAIR] Room membership after join:', {
+    roomId,
+    memberCount: roomSockets ? roomSockets.size : 0,
+    meSocketId: meSocket.id,
+    meXrId: meXr,
+    partnerSocketId: partnerSocket.id,
+    partnerXrId: partnerXr
+  });
+
   const parsed = String(roomId).split(':');
   const members = (parsed.length === 3) ? [normXr(parsed[1]), normXr(parsed[2])] : [meXr, partnerXr];
   io.to(roomId).emit("room_joined", { roomId, members });
@@ -1583,86 +1594,6 @@ app.post("/api/notes/generate", async (req, res) => {
   }
 });
 
-/**
- * POST /api/tts/convert
- * Converts text to speech using ElevenLabs API and sends to device
- * Body: { text: string, deviceId: string }
- */
-app.post("/api/tts/convert", async (req, res) => {
-  try {
-    const { text, deviceId } = req.body;
-
-    if (!text || !text.trim()) {
-      return res.status(400).json({ error: "text is required and cannot be empty" });
-    }
-
-    if (!deviceId || !deviceId.trim()) {
-      return res.status(400).json({ error: "deviceId is required" });
-    }
-
-    const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey || apiKey === 'your_elevenlabs_api_key_here') {
-      return res.status(500).json({ error: "ElevenLabs API key not configured" });
-    }
-
-    dlog(`[TTS] Converting text to speech for device: ${deviceId}`);
-
-    // ElevenLabs API endpoint (using default voice)
-    const voiceId = "21m00Tcm4TlvDq8ikWAM"; // Rachel voice (default)
-    const elevenLabsUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
-
-    // Make request to ElevenLabs
-    const response = await axios.post(
-      elevenLabsUrl,
-      {
-        text: text,
-        model_id: "eleven_monolingual_v1",
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75
-        }
-      },
-      {
-        headers: {
-          'Accept': 'audio/mpeg',
-          'xi-api-key': apiKey,
-          'Content-Type': 'application/json'
-        },
-        responseType: 'arraybuffer'
-      }
-    );
-
-    // Convert audio to base64
-    const audioBase64 = Buffer.from(response.data).toString('base64');
-    const audioUrl = `data:audio/mpeg;base64,${audioBase64}`;
-
-    dlog(`[TTS] Audio generated successfully, sending to device: ${deviceId}`);
-
-    // Send audio to device via socket
-    const sockets = await safeFetchSockets(io);
-    const deviceSocket = sockets.find(s => s.data?.xrId === deviceId);
-
-    if (deviceSocket) {
-      deviceSocket.emit('play_audio', {
-        audioUrl: audioUrl,
-        type: 'summary_tts'
-      });
-      dlog(`[TTS] Audio sent to device socket: ${deviceSocket.id}`);
-      return res.json({ success: true, message: 'Audio sent to device' });
-    } else {
-      dwarn(`[TTS] Device not found: ${deviceId}`);
-      return res.status(404).json({ error: 'Device not connected' });
-    }
-
-  } catch (err) {
-    derr("[TTS_API] /api/tts/convert failed:", err?.message || err);
-    if (err.response) {
-      derr("[TTS_API] ElevenLabs error:", err.response.status, err.response.data);
-    }
-    return res.status(500).json({ error: "Failed to convert text to speech" });
-  }
-});
-
 app.get('/ehr/patient/:mrn', async (req, res) => {
   dlog('[EHR_API] /ehr/patient/:mrn request received');
 
@@ -2268,6 +2199,69 @@ function parseJsonObject(raw) {
     return JSON.parse(unfenced.slice(start, end + 1));
   }
 }
+
+app.post('/ehr/ai/text-to-speech', async (req, res) => {
+  try {
+    const { text } = req.body;
+
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+    if (!ELEVENLABS_API_KEY || ELEVENLABS_API_KEY === 'your_elevenlabs_api_key_here') {
+      return res.status(500).json({ error: 'ElevenLabs API key not configured' });
+    }
+
+    const VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB';
+    const MODEL_ID = process.env.ELEVENLABS_MODEL_ID || 'eleven_monolingual_v1';
+
+    console.log('[TTS] Generating audio for text length:', text.length);
+
+    const elevenResponse = await axios.post(
+      `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
+      {
+        text: text.trim(),
+        model_id: MODEL_ID,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.0,
+          use_speaker_boost: true
+        }
+      },
+      {
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': ELEVENLABS_API_KEY
+        },
+        responseType: 'arraybuffer',
+        timeout: 60000
+      }
+    );
+
+    if (elevenResponse.status !== 200) {
+      throw new Error(`ElevenLabs API error: ${elevenResponse.status}`);
+    }
+
+    const audioBase64 = Buffer.from(elevenResponse.data).toString('base64');
+
+    console.log('[TTS] Audio generated successfully, size:', elevenResponse.data.length, 'bytes');
+
+    res.json({
+      success: true,
+      audio: audioBase64,
+      contentType: 'audio/mpeg'
+    });
+
+  } catch (err) {
+    console.error('[TTS] Error:', err.message);
+    res.status(500).json({
+      error: err?.response?.data?.detail?.message || err.message || 'Failed to generate audio'
+    });
+  }
+});
 
 function normalizeSingleParagraph(text) {
   return String(text || '')
@@ -5370,6 +5364,15 @@ io.on('connection', (socket) => {
           await socket.join(roomId);
           socket.data.roomId = roomId;
 
+          // ✅ Log room membership after cockpit join
+          const roomSockets = io.sockets.adapter.rooms.get(roomId);
+          console.log('[COCKPIT] Joined room:', {
+            xrId: XR,
+            roomId,
+            socketId: socket.id,
+            memberCount: roomSockets ? roomSockets.size : 0
+          });
+
           socket.emit('room_joined', { roomId });
 
           try {
@@ -5492,6 +5495,7 @@ io.on('connection', (socket) => {
     // ✅ Accept this socket
     socket.data.deviceName = deviceName || 'Unknown';
     socket.data.xrId = XR;
+    socket.data.clientType = clientType || 'device';  // 🔑 Store clientType for filtering
 
     // ✅ Option B: Redis owner lock (authoritative online/offline)
     try {
@@ -6126,6 +6130,93 @@ io.on('connection', (socket) => {
       io.emit('status_report', payload);
     }
 
+  });
+
+  // -------- play_audio_on_device (NEW) --------
+  socket.on('play_audio_on_device', ({ audio, contentType, room }) => {
+    try {
+      if (!audio) {
+        console.warn('[play_audio_on_device] No audio data provided');
+        return;
+      }
+
+      const targetRoom = room || socket.data?.roomId;
+      if (!targetRoom) {
+        console.warn('[play_audio_on_device] No room specified, socket.data.roomId:', socket.data?.roomId);
+        return;
+      }
+
+      console.log('[play_audio_on_device] Broadcasting to room:', targetRoom, 'audio size:', audio.length, 'chars');
+
+      // Get room members for debugging
+      const roomSockets = io.sockets.adapter.rooms.get(targetRoom);
+      const memberCount = roomSockets ? roomSockets.size : 0;
+      console.log('[play_audio_on_device] Room members:', memberCount);
+
+      // Log each member's details
+      if (roomSockets && roomSockets.size > 0) {
+        console.log('[play_audio_on_device] Room member details:');
+        let deviceCount = 0;
+        let cockpitCount = 0;
+
+        for (const socketId of roomSockets) {
+          const sock = io.sockets.sockets.get(socketId);
+          if (sock) {
+            const cType = sock.data?.clientType || 'unknown';
+            if (cType === 'device') deviceCount++;
+            if (cType === 'cockpit') cockpitCount++;
+
+            console.log(`  - Socket ${socketId}:`, {
+              xrId: sock.data?.xrId,
+              deviceName: sock.data?.deviceName,
+              roomId: sock.data?.roomId,
+              clientType: cType,
+              playAudioListeners: sock.listeners('play_audio').length
+            });
+          }
+        }
+
+        console.log('[play_audio_on_device] Summary:', {
+          totalMembers: roomSockets.size,
+          devices: deviceCount,
+          cockpits: cockpitCount
+        });
+
+        if (deviceCount === 0) {
+          console.warn('[play_audio_on_device] ⚠️ WARNING: No DEVICE sockets in room! Only cockpits present.');
+        }
+      } else {
+        console.warn('[play_audio_on_device] ⚠️ WARNING: Room is EMPTY! No devices will receive the audio.');
+      }
+
+      // Emit to room
+      io.to(targetRoom).emit('play_audio', {
+        audio,
+        contentType: contentType || 'audio/mpeg',
+        timestamp: Date.now()
+      });
+
+      console.log('[play_audio_on_device] ✅ Emitted play_audio event to room');
+
+      // ALSO emit directly to EVERY socket in the room (not just devices)
+      if (roomSockets && roomSockets.size > 0) {
+        for (const socketId of roomSockets) {
+          const sock = io.sockets.sockets.get(socketId);
+          if (sock) {
+            console.log(`[play_audio_on_device] 🎯 DIRECT emit to socket ${socketId} (xrId=${sock.data?.xrId}, clientType=${sock.data?.clientType})`);
+            sock.emit('play_audio', {
+              audio,
+              contentType: contentType || 'audio/mpeg',
+              timestamp: Date.now()
+            });
+          }
+        }
+      }
+
+      console.log('[play_audio_on_device] ✅ Completed audio broadcast');
+    } catch (e) {
+      console.error('[play_audio_on_device] Error:', e?.message || e);
+    }
   });
 
   // -------- battery (NEW) --------
