@@ -3932,7 +3932,7 @@
           gap:12px;
         ">
           ${escapeHtmlEhr(title || 'AI Summary Note')}
-          <button id="sendAudioToDeviceBtn" style="
+          <button id="speakerBtn" style="
             background:#6366f1;
             border:none;
             border-radius:8px;
@@ -3945,12 +3945,29 @@
             align-items:center;
             gap:6px;
             transition:background 0.2s;
-          " title="Send audio to device">
+          " title="Play summary audio on device">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
               <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
             </svg>
-            Send to Device
+            Play
+          </button>
+          <button id="testSimpleAudioBtn" style="
+            background:#10b981;
+            border:none;
+            border-radius:8px;
+            color:#fff;
+            cursor:pointer;
+            padding:8px 12px;
+            font-size:14px;
+            font-weight:600;
+            display:flex;
+            align-items:center;
+            gap:6px;
+            transition:background 0.2s;
+          " title="Test with simple text">
+            🧪 Test
           </button>
         </div>
 
@@ -3977,21 +3994,24 @@
       </div>
     `;
 
-    // Send to Device button
-    const sendBtn = document.getElementById('sendAudioToDeviceBtn');
-    if (sendBtn) {
-      sendBtn.onmouseover = () => sendBtn.style.background = '#4f46e5';
-      sendBtn.onmouseout = () => sendBtn.style.background = '#6366f1';
-      sendBtn.onclick = () => playSummaryAudio(raw);
+    const speakerBtn = document.getElementById('speakerBtn');
+    if (speakerBtn) {
+      speakerBtn.onmouseover = () => speakerBtn.style.background = '#4f46e5';
+      speakerBtn.onmouseout = () => speakerBtn.style.background = '#6366f1';
+      speakerBtn.onclick = () => playSummaryAudio(raw);
+    }
+
+    // 🧪 TEST button for quick audio testing
+    const testBtn = document.getElementById('testSimpleAudioBtn');
+    if (testBtn) {
+      testBtn.onmouseover = () => testBtn.style.background = '#059669';
+      testBtn.onmouseout = () => testBtn.style.background = '#10b981';
+      testBtn.onclick = () => playSummaryAudio('This is a test audio message. Testing one two three.');
     }
   }
 
   async function playSummaryAudio(text) {
-    console.log('🔵 [PLAY_SUMMARY] Called with text length:', text?.length || 0);
-    console.log('🔵 [PLAY_SUMMARY] Text preview:', text?.substring(0, 100));
-
     if (!text || !text.trim()) {
-      console.log('🔴 [PLAY_SUMMARY] No text provided!');
       if (typeof Swal !== 'undefined') {
         Swal.fire({ icon: 'error', title: 'No Content', text: 'No summary text available to play.' });
       } else {
@@ -4014,46 +4034,36 @@
     }
 
     try {
-      console.log('🔵 [PLAY_SUMMARY] Fetching TTS from:', `${state.SERVER_URL}/ehr/ai/text-to-speech`);
       const res = await fetch(`${state.SERVER_URL}/ehr/ai/text-to-speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text.trim() })
       });
 
-      console.log('🔵 [PLAY_SUMMARY] TTS response status:', res.status);
       const data = await res.json();
-      console.log('🔵 [PLAY_SUMMARY] TTS response data keys:', Object.keys(data));
-      console.log('🔵 [PLAY_SUMMARY] Audio length:', data.audio?.length);
-
       if (!res.ok) throw new Error(data?.error || 'Failed to generate audio');
 
       if (state.socket && state.socket.connected) {
-        console.log('[TTS] 🎵 Emitting play_audio to room:', state.currentRoom, 'audio size:', data.audio?.length);
+        console.log('[TTS] 🎵 Emitting play_audio_on_device to room:', state.currentRoom, 'audio size:', data.audio?.length);
         console.log('[TTS] 🎵 Socket ID:', state.socket.id, 'Connected:', state.socket.connected);
         console.log('[TTS] 🎵 Room members count:', state.roomMembers?.length || 0);
-        console.log('🔵 [PLAY_SUMMARY] About to emit play_audio...');
 
-        state.socket.emit('play_audio', {
+        state.socket.emit('play_audio_on_device', {
           audio: data.audio,
           contentType: data.contentType || 'audio/mpeg',
           room: state.currentRoom
         });
 
-        console.log('🔵 [PLAY_SUMMARY] ✅ Event emitted successfully');
+        console.log('[TTS] ✅ Event emitted successfully');
 
         if (typeof Swal !== 'undefined') {
           Swal.fire({ icon: 'success', title: 'Audio Sent', text: 'Audio is now playing on the device.', timer: 2000 });
         }
       } else {
-        console.log('🔴 [PLAY_SUMMARY] Socket not connected!', {
-          hasSocket: !!state.socket,
-          isConnected: state.socket?.connected
-        });
         throw new Error('Not connected to server');
       }
     } catch (err) {
-      console.error('🔴 [PLAY_SUMMARY] Error:', err);
+      console.error('[TTS] Error:', err);
       if (typeof Swal !== 'undefined') {
         Swal.fire({ icon: 'error', title: 'Audio Error', text: err.message || 'Failed to generate or play audio.' });
       } else {
@@ -4074,7 +4084,6 @@
       }
     }
   }
-
 
   async function loadSummary() {
     if (!dom.noteDetail) return;
