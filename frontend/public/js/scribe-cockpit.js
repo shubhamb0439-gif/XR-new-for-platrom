@@ -3932,43 +3932,6 @@
           gap:12px;
         ">
           ${escapeHtmlEhr(title || 'AI Summary Note')}
-          <button id="speakerBtn" style="
-            background:#6366f1;
-            border:none;
-            border-radius:8px;
-            color:#fff;
-            cursor:pointer;
-            padding:8px 12px;
-            font-size:14px;
-            font-weight:600;
-            display:flex;
-            align-items:center;
-            gap:6px;
-            transition:background 0.2s;
-          " title="Play summary audio on device">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-            </svg>
-            Play
-          </button>
-          <button id="testSimpleAudioBtn" style="
-            background:#10b981;
-            border:none;
-            border-radius:8px;
-            color:#fff;
-            cursor:pointer;
-            padding:8px 12px;
-            font-size:14px;
-            font-weight:600;
-            display:flex;
-            align-items:center;
-            gap:6px;
-            transition:background 0.2s;
-          " title="Test with simple text">
-            🧪 Test
-          </button>
           <button id="previewAudioBtn" style="
             background:#f59e0b;
             border:none;
@@ -3988,6 +3951,27 @@
               <polygon points="10 8 16 12 10 16 10 8"></polygon>
             </svg>
             Preview
+          </button>
+          <button id="sendAudioBtn" style="
+            background:#6366f1;
+            border:none;
+            border-radius:8px;
+            color:#fff;
+            cursor:not-allowed;
+            padding:8px 12px;
+            font-size:14px;
+            font-weight:600;
+            display:flex;
+            align-items:center;
+            gap:6px;
+            transition:background 0.2s;
+            opacity:0.5;
+          " title="Send audio to device (preview first)" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+            Send
           </button>
         </div>
 
@@ -4014,27 +3998,18 @@
       </div>
     `;
 
-    const speakerBtn = document.getElementById('speakerBtn');
-    if (speakerBtn) {
-      speakerBtn.onmouseover = () => speakerBtn.style.background = '#4f46e5';
-      speakerBtn.onmouseout = () => speakerBtn.style.background = '#6366f1';
-      speakerBtn.onclick = () => playSummaryAudio(raw);
-    }
-
-    // 🧪 TEST button for quick audio testing
-    const testBtn = document.getElementById('testSimpleAudioBtn');
-    if (testBtn) {
-      testBtn.onmouseover = () => testBtn.style.background = '#059669';
-      testBtn.onmouseout = () => testBtn.style.background = '#10b981';
-      testBtn.onclick = () => playSummaryAudio('This is a test audio message. Testing one two three.');
-    }
-
     // 🎧 PREVIEW button to play audio locally in browser
     const previewBtn = document.getElementById('previewAudioBtn');
     if (previewBtn) {
       previewBtn.onmouseover = () => previewBtn.style.background = '#d97706';
       previewBtn.onmouseout = () => previewBtn.style.background = '#f59e0b';
       previewBtn.onclick = () => previewSummaryAudioLocally(raw);
+    }
+
+    // 📤 SEND button to send audio to device (disabled until preview is generated)
+    const sendBtn = document.getElementById('sendAudioBtn');
+    if (sendBtn) {
+      sendBtn.onclick = () => sendCachedAudioToDevice();
     }
   }
 
@@ -4127,6 +4102,9 @@
     }
   }
 
+  // Cache for generated audio
+  let cachedAudioData = null;
+
   async function previewSummaryAudioLocally(text) {
     console.log('🎧 [PREVIEW] Called with text length:', text?.length || 0);
     console.log('🎧 [PREVIEW] Text preview:', text?.substring(0, 200));
@@ -4171,6 +4149,13 @@
 
       if (!res.ok) throw new Error(data?.error || 'Failed to generate audio');
 
+      // Cache the audio data for sending later
+      cachedAudioData = {
+        audio: data.audio,
+        contentType: data.contentType || 'audio/mpeg'
+      };
+      console.log('🎧 [PREVIEW] Audio cached for sending');
+
       // Play audio locally in browser
       console.log('🎧 [PREVIEW] Creating audio element...');
       const audioBlob = base64ToBlob(data.audio, data.contentType || 'audio/mpeg');
@@ -4190,6 +4175,17 @@
           text: 'Audio is playing in your browser.',
           timer: 2000
         });
+      }
+
+      // Enable Send button now that audio is generated
+      const sendBtn = document.getElementById('sendAudioBtn');
+      if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.style.cursor = 'pointer';
+        sendBtn.style.opacity = '1';
+        sendBtn.onmouseover = () => sendBtn.style.background = '#4f46e5';
+        sendBtn.onmouseout = () => sendBtn.style.background = '#6366f1';
+        console.log('📤 [PREVIEW] Send button enabled');
       }
 
       // Clean up URL when audio finishes
@@ -4215,6 +4211,77 @@
             <polygon points="10 8 16 12 10 16 10 8"></polygon>
           </svg>
           Preview
+        `;
+      }
+    }
+  }
+
+  async function sendCachedAudioToDevice() {
+    console.log('📤 [SEND] Called');
+
+    if (!cachedAudioData) {
+      console.log('🔴 [SEND] No cached audio data!');
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({ icon: 'error', title: 'No Audio', text: 'Please generate a preview first.' });
+      } else {
+        alert('Please generate a preview first.');
+      }
+      return;
+    }
+
+    const sendBtn = document.getElementById('sendAudioBtn');
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.style.opacity = '0.6';
+      sendBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        Sending...
+      `;
+    }
+
+    try {
+      if (state.socket && state.socket.connected) {
+        console.log('📤 [SEND] Emitting play_audio_on_device to room:', state.currentRoom);
+        console.log('📤 [SEND] Audio size:', cachedAudioData.audio?.length);
+
+        state.socket.emit('play_audio_on_device', {
+          audio: cachedAudioData.audio,
+          contentType: cachedAudioData.contentType,
+          room: state.currentRoom
+        });
+
+        console.log('📤 [SEND] ✅ Event emitted successfully');
+
+        if (typeof Swal !== 'undefined') {
+          Swal.fire({ icon: 'success', title: 'Audio Sent', text: 'Audio is now playing on the device.', timer: 2000 });
+        }
+      } else {
+        console.log('🔴 [SEND] Socket not connected!', {
+          hasSocket: !!state.socket,
+          isConnected: state.socket?.connected
+        });
+        throw new Error('Not connected to server');
+      }
+    } catch (err) {
+      console.error('🔴 [SEND] Error:', err);
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({ icon: 'error', title: 'Send Error', text: err.message || 'Failed to send audio.' });
+      } else {
+        alert(err.message || 'Failed to send audio.');
+      }
+    } finally {
+      if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.style.opacity = '1';
+        sendBtn.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+          Send
         `;
       }
     }
