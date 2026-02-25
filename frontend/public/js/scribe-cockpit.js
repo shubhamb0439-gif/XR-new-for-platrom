@@ -3926,49 +3926,8 @@
           color:#FFFFFF;
           background:transparent;
           border-bottom:none;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          gap:12px;
         ">
           ${escapeHtmlEhr(title || 'AI Summary Note')}
-          <button id="speakerBtn" style="
-            background:#6366f1;
-            border:none;
-            border-radius:8px;
-            color:#fff;
-            cursor:pointer;
-            padding:8px 12px;
-            font-size:14px;
-            font-weight:600;
-            display:flex;
-            align-items:center;
-            gap:6px;
-            transition:background 0.2s;
-          " title="Play summary audio on device">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-            </svg>
-            Play
-          </button>
-          <button id="testSimpleAudioBtn" style="
-            background:#10b981;
-            border:none;
-            border-radius:8px;
-            color:#fff;
-            cursor:pointer;
-            padding:8px 12px;
-            font-size:14px;
-            font-weight:600;
-            display:flex;
-            align-items:center;
-            gap:6px;
-            transition:background 0.2s;
-          " title="Test with simple text">
-            🧪 Test
-          </button>
         </div>
 
         <div style="
@@ -3993,109 +3952,6 @@
         </div>
       </div>
     `;
-
-    const speakerBtn = document.getElementById('speakerBtn');
-    if (speakerBtn) {
-      speakerBtn.onmouseover = () => speakerBtn.style.background = '#4f46e5';
-      speakerBtn.onmouseout = () => speakerBtn.style.background = '#6366f1';
-      speakerBtn.onclick = () => playSummaryAudio(raw);
-    }
-
-    // 🧪 TEST button for quick audio testing
-    const testBtn = document.getElementById('testSimpleAudioBtn');
-    if (testBtn) {
-      testBtn.onmouseover = () => testBtn.style.background = '#059669';
-      testBtn.onmouseout = () => testBtn.style.background = '#10b981';
-      testBtn.onclick = () => playSummaryAudio('This is a test audio message. Testing one two three.');
-    }
-  }
-
-  async function playSummaryAudio(text) {
-    console.log('[playSummaryAudio] Received input type:', typeof text);
-    console.log('[playSummaryAudio] Received input:', text);
-
-    let textToSend = text;
-
-    if (typeof text === 'object' && text !== null) {
-      console.log('[playSummaryAudio] Input is object, extracting text property');
-      textToSend = text.text || text.content || JSON.stringify(text);
-    }
-
-    textToSend = String(textToSend || '').trim();
-    console.log('[playSummaryAudio] Final text to send:', textToSend.substring(0, 100) + '...');
-
-    if (!textToSend) {
-      if (typeof Swal !== 'undefined') {
-        Swal.fire({ icon: 'error', title: 'No Content', text: 'No summary text available to play.' });
-      } else {
-        alert('No summary text available to play.');
-      }
-      return;
-    }
-
-    const speakerBtn = document.getElementById('speakerBtn');
-    if (speakerBtn) {
-      speakerBtn.disabled = true;
-      speakerBtn.style.opacity = '0.6';
-      speakerBtn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"></circle>
-          <polyline points="12 6 12 12 16 14"></polyline>
-        </svg>
-        Generating...
-      `;
-    }
-
-    try {
-      const res = await fetch(`${state.SERVER_URL}/ehr/ai/text-to-speech`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: textToSend })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Failed to generate audio');
-
-      if (state.socket && state.socket.connected) {
-        console.log('[TTS] 🎵 Emitting play_audio_on_device to room:', state.currentRoom, 'audio size:', data.audio?.length);
-        console.log('[TTS] 🎵 Socket ID:', state.socket.id, 'Connected:', state.socket.connected);
-        console.log('[TTS] 🎵 Room members count:', state.roomMembers?.length || 0);
-
-        state.socket.emit('play_audio_on_device', {
-          audio: data.audio,
-          contentType: data.contentType || 'audio/mpeg',
-          room: state.currentRoom
-        });
-
-        console.log('[TTS] ✅ Event emitted successfully');
-
-        if (typeof Swal !== 'undefined') {
-          Swal.fire({ icon: 'success', title: 'Audio Sent', text: 'Audio is now playing on the device.', timer: 2000 });
-        }
-      } else {
-        throw new Error('Not connected to server');
-      }
-    } catch (err) {
-      console.error('[TTS] Error:', err);
-      if (typeof Swal !== 'undefined') {
-        Swal.fire({ icon: 'error', title: 'Audio Error', text: err.message || 'Failed to generate or play audio.' });
-      } else {
-        alert(err.message || 'Failed to generate or play audio.');
-      }
-    } finally {
-      if (speakerBtn) {
-        speakerBtn.disabled = false;
-        speakerBtn.style.opacity = '1';
-        speakerBtn.innerHTML = `
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-          </svg>
-          Play
-        `;
-      }
-    }
   }
 
   async function loadSummary() {
