@@ -136,6 +136,7 @@ const io = new Server(server, {
   allowEIO3: true,
   pingInterval: 25000,
   pingTimeout: 30000,
+  maxHttpBufferSize: 10 * 1024 * 1024, // 10MB (increased from default 1MB for large audio payloads)
 });
 
 console.log('[SOCKET.IO] Socket.IO server initialized');
