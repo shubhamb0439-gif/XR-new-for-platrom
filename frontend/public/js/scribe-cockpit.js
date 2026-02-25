@@ -3212,6 +3212,24 @@
           clearCockpitUiForRoomSwitch(prevRoom, nextRoom);
           state.currentRoom = nextRoom;
           updateConnectionStatus('room_joined', []);
+        });
+
+        // Listen for audio ended event from device
+        state.socket.on('audio_ended', () => {
+          console.log('[TTS] 🎵 Device reported audio playback ended');
+          const speakerBtn = document.getElementById('speakerBtn');
+          if (speakerBtn) {
+            speakerBtn.disabled = false;
+            speakerBtn.style.opacity = '1';
+            speakerBtn.innerHTML = `
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+              </svg>
+              Play
+            `;
+          }
           try { restoreFromLocalStorage(); } catch { }
           if (state.currentRoom) requestDeviceListThrottled();
         });
@@ -3953,22 +3971,6 @@
             </svg>
             Play
           </button>
-          <button id="testSimpleAudioBtn" style="
-            background:#10b981;
-            border:none;
-            border-radius:8px;
-            color:#fff;
-            cursor:pointer;
-            padding:8px 12px;
-            font-size:14px;
-            font-weight:600;
-            display:flex;
-            align-items:center;
-            gap:6px;
-            transition:background 0.2s;
-          " title="Test with simple text">
-            🧪 Test
-          </button>
         </div>
 
         <div style="
@@ -4001,13 +4003,6 @@
       speakerBtn.onclick = () => playSummaryAudio(raw);
     }
 
-    // 🧪 TEST button for quick audio testing
-    const testBtn = document.getElementById('testSimpleAudioBtn');
-    if (testBtn) {
-      testBtn.onmouseover = () => testBtn.style.background = '#059669';
-      testBtn.onmouseout = () => testBtn.style.background = '#10b981';
-      testBtn.onclick = () => playSummaryAudio('This is a test audio message. Testing one two three.');
-    }
   }
 
   async function playSummaryAudio(text) {
@@ -4072,6 +4067,20 @@
         if (typeof Swal !== 'undefined') {
           Swal.fire({ icon: 'success', title: 'Audio Sent', text: 'Audio is now playing on the device.', timer: 2000 });
         }
+
+        // Keep button as "Playing..." - will be reset by audio_ended event from device
+        if (speakerBtn) {
+          speakerBtn.disabled = true;
+          speakerBtn.style.opacity = '0.6';
+          speakerBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            Playing...
+          `;
+        }
       } else {
         throw new Error('Not connected to server');
       }
@@ -4082,7 +4091,8 @@
       } else {
         alert(err.message || 'Failed to generate or play audio.');
       }
-    } finally {
+
+      // Reset button on error
       if (speakerBtn) {
         speakerBtn.disabled = false;
         speakerBtn.style.opacity = '1';
