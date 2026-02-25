@@ -3932,8 +3932,8 @@
           gap:12px;
         ">
           ${escapeHtmlEhr(title || 'AI Summary Note')}
-          <button id="previewAudioBtn" style="
-            background:#f59e0b;
+          <button id="sendAudioToDeviceBtn" style="
+            background:#6366f1;
             border:none;
             border-radius:8px;
             color:#fff;
@@ -3945,33 +3945,12 @@
             align-items:center;
             gap:6px;
             transition:background 0.2s;
-          " title="Preview audio in browser">
+          " title="Send audio to device">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polygon points="10 8 16 12 10 16 10 8"></polygon>
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
             </svg>
-            Preview
-          </button>
-          <button id="sendAudioBtn" style="
-            background:#6366f1;
-            border:none;
-            border-radius:8px;
-            color:#fff;
-            cursor:not-allowed;
-            padding:8px 12px;
-            font-size:14px;
-            font-weight:600;
-            display:flex;
-            align-items:center;
-            gap:6px;
-            transition:background 0.2s;
-            opacity:0.5;
-          " title="Send audio to device (preview first)" disabled>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13"></line>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-            </svg>
-            Send
+            Send to Device
           </button>
         </div>
 
@@ -3998,18 +3977,12 @@
       </div>
     `;
 
-    // 🎧 PREVIEW button to play audio locally in browser
-    const previewBtn = document.getElementById('previewAudioBtn');
-    if (previewBtn) {
-      previewBtn.onmouseover = () => previewBtn.style.background = '#d97706';
-      previewBtn.onmouseout = () => previewBtn.style.background = '#f59e0b';
-      previewBtn.onclick = () => previewSummaryAudioLocally(raw);
-    }
-
-    // 📤 SEND button to send audio to device (disabled until preview is generated)
-    const sendBtn = document.getElementById('sendAudioBtn');
+    // Send to Device button
+    const sendBtn = document.getElementById('sendAudioToDeviceBtn');
     if (sendBtn) {
-      sendBtn.onclick = () => sendCachedAudioToDevice();
+      sendBtn.onmouseover = () => sendBtn.style.background = '#4f46e5';
+      sendBtn.onmouseout = () => sendBtn.style.background = '#6366f1';
+      sendBtn.onclick = () => playSummaryAudio(raw);
     }
   }
 
@@ -4102,209 +4075,6 @@
     }
   }
 
-  // Cache for generated audio
-  let cachedAudioData = null;
-
-  async function previewSummaryAudioLocally(text) {
-    console.log('🎧 [PREVIEW] Called with text length:', text?.length || 0);
-    console.log('🎧 [PREVIEW] Text preview:', text?.substring(0, 200));
-
-    if (!text || !text.trim()) {
-      console.log('🔴 [PREVIEW] No text provided!');
-      if (typeof Swal !== 'undefined') {
-        Swal.fire({ icon: 'error', title: 'No Content', text: 'No summary text available to preview.' });
-      } else {
-        alert('No summary text available to preview.');
-      }
-      return;
-    }
-
-    const previewBtn = document.getElementById('previewAudioBtn');
-    if (previewBtn) {
-      previewBtn.disabled = true;
-      previewBtn.style.opacity = '0.6';
-      previewBtn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"></circle>
-          <polyline points="12 6 12 12 16 14"></polyline>
-        </svg>
-        Generating...
-      `;
-    }
-
-    try {
-      console.log('🎧 [PREVIEW] Fetching TTS from:', `${state.SERVER_URL}/ehr/ai/text-to-speech`);
-      console.log('🎧 [PREVIEW] Sending text:', text.substring(0, 200) + '...');
-
-      const res = await fetch(`${state.SERVER_URL}/ehr/ai/text-to-speech`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim() })
-      });
-
-      console.log('🎧 [PREVIEW] TTS response status:', res.status);
-      const data = await res.json();
-      console.log('🎧 [PREVIEW] TTS response data keys:', Object.keys(data));
-      console.log('🎧 [PREVIEW] Audio length:', data.audio?.length);
-
-      if (!res.ok) throw new Error(data?.error || 'Failed to generate audio');
-
-      // Cache the audio data for sending later
-      cachedAudioData = {
-        audio: data.audio,
-        contentType: data.contentType || 'audio/mpeg'
-      };
-      console.log('🎧 [PREVIEW] Audio cached for sending');
-
-      // Play audio locally in browser
-      console.log('🎧 [PREVIEW] Creating audio element...');
-      const audioBlob = base64ToBlob(data.audio, data.contentType || 'audio/mpeg');
-      const audioUrl = URL.createObjectURL(audioBlob);
-
-      console.log('🎧 [PREVIEW] Audio URL created:', audioUrl);
-
-      const audio = new Audio(audioUrl);
-      audio.play();
-
-      console.log('🎧 [PREVIEW] Playing audio locally in browser');
-
-      if (typeof Swal !== 'undefined') {
-        Swal.fire({
-          icon: 'success',
-          title: 'Playing Preview',
-          text: 'Audio is playing in your browser.',
-          timer: 2000
-        });
-      }
-
-      // Enable Send button now that audio is generated
-      const sendBtn = document.getElementById('sendAudioBtn');
-      if (sendBtn) {
-        sendBtn.disabled = false;
-        sendBtn.style.cursor = 'pointer';
-        sendBtn.style.opacity = '1';
-        sendBtn.onmouseover = () => sendBtn.style.background = '#4f46e5';
-        sendBtn.onmouseout = () => sendBtn.style.background = '#6366f1';
-        console.log('📤 [PREVIEW] Send button enabled');
-      }
-
-      // Clean up URL when audio finishes
-      audio.addEventListener('ended', () => {
-        URL.revokeObjectURL(audioUrl);
-        console.log('🎧 [PREVIEW] Audio finished, URL revoked');
-      });
-
-    } catch (err) {
-      console.error('🔴 [PREVIEW] Error:', err);
-      if (typeof Swal !== 'undefined') {
-        Swal.fire({ icon: 'error', title: 'Preview Error', text: err.message || 'Failed to generate or preview audio.' });
-      } else {
-        alert(err.message || 'Failed to generate or preview audio.');
-      }
-    } finally {
-      if (previewBtn) {
-        previewBtn.disabled = false;
-        previewBtn.style.opacity = '1';
-        previewBtn.innerHTML = `
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <polygon points="10 8 16 12 10 16 10 8"></polygon>
-          </svg>
-          Preview
-        `;
-      }
-    }
-  }
-
-  async function sendCachedAudioToDevice() {
-    console.log('📤 [SEND] Called');
-
-    if (!cachedAudioData) {
-      console.log('🔴 [SEND] No cached audio data!');
-      if (typeof Swal !== 'undefined') {
-        Swal.fire({ icon: 'error', title: 'No Audio', text: 'Please generate a preview first.' });
-      } else {
-        alert('Please generate a preview first.');
-      }
-      return;
-    }
-
-    const sendBtn = document.getElementById('sendAudioBtn');
-    if (sendBtn) {
-      sendBtn.disabled = true;
-      sendBtn.style.opacity = '0.6';
-      sendBtn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"></circle>
-          <polyline points="12 6 12 12 16 14"></polyline>
-        </svg>
-        Sending...
-      `;
-    }
-
-    try {
-      if (state.socket && state.socket.connected) {
-        console.log('📤 [SEND] Emitting play_audio to room:', state.currentRoom);
-        console.log('📤 [SEND] Audio size:', cachedAudioData.audio?.length);
-
-        state.socket.emit('play_audio', {
-          audio: cachedAudioData.audio,
-          contentType: cachedAudioData.contentType,
-          room: state.currentRoom
-        });
-
-        console.log('📤 [SEND] ✅ Event emitted successfully');
-
-        if (typeof Swal !== 'undefined') {
-          Swal.fire({ icon: 'success', title: 'Audio Sent', text: 'Audio is now playing on the device.', timer: 2000 });
-        }
-      } else {
-        console.log('🔴 [SEND] Socket not connected!', {
-          hasSocket: !!state.socket,
-          isConnected: state.socket?.connected
-        });
-        throw new Error('Not connected to server');
-      }
-    } catch (err) {
-      console.error('🔴 [SEND] Error:', err);
-      if (typeof Swal !== 'undefined') {
-        Swal.fire({ icon: 'error', title: 'Send Error', text: err.message || 'Failed to send audio.' });
-      } else {
-        alert(err.message || 'Failed to send audio.');
-      }
-    } finally {
-      if (sendBtn) {
-        sendBtn.disabled = false;
-        sendBtn.style.opacity = '1';
-        sendBtn.innerHTML = `
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-          </svg>
-          Send
-        `;
-      }
-    }
-  }
-
-  function base64ToBlob(base64, contentType) {
-    const byteCharacters = atob(base64);
-    const byteArrays = [];
-
-    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-      const slice = byteCharacters.slice(offset, offset + 512);
-      const byteNumbers = new Array(slice.length);
-
-      for (let i = 0; i < slice.length; i++) {
-        byteNumbers[i] = slice.charCodeAt(i);
-      }
-
-      const byteArray = new Uint8Array(byteNumbers);
-      byteArrays.push(byteArray);
-    }
-
-    return new Blob(byteArrays, { type: contentType });
-  }
 
   async function loadSummary() {
     if (!dom.noteDetail) return;
